@@ -177,20 +177,47 @@ function mostrarTab(nome, el) {
 // ============================================================
 function pesquisar() {
   var val = document.getElementById('searchInput').value.trim().toUpperCase();
+  if (!val) return;
+
+  // 1) Busca no DB (Investigação)
   var chaves = Object.keys(DB);
-  var match = chaves.find(function(k) { return k.toUpperCase() === val; })
-           || chaves.find(function(k) { return k.toUpperCase().indexOf(val) >= 0; });
-  if (match) {
-    currentJob = match;
-    renderTudo(match);
+  var matchDB = chaves.find(function(k) { return k.toUpperCase() === val; })
+             || chaves.find(function(k) { return k.toUpperCase().indexOf(val) >= 0; });
+  if (matchDB) {
+    currentJob = matchDB;
+    renderTudo(matchDB);
     document.querySelectorAll('.job-item').forEach(function(li) {
       li.classList.remove('active');
-      if (li.textContent.trim() === match) li.classList.add('active');
+      if (li.textContent.trim() === matchDB) li.classList.add('active');
     });
     mostrarTab('investigacao', document.querySelectorAll('.tab')[0]);
-  } else {
-    toast('Nenhum resultado para: ' + val, 3000);
+    return;
   }
+
+  // 2) Busca nos jobs do fluxo importado (_fluxoData)
+  if (_fluxoData) {
+    var matchFluxo = null;
+    var matchFluxoExact = null;
+    Object.keys(_fluxoData).forEach(function(g) {
+      Object.keys(_fluxoData[g].jobs).forEach(function(jid) {
+        var job = _fluxoData[g].jobs[jid];
+        if (jid === val || (job.label && job.label.toUpperCase() === val)) {
+          matchFluxoExact = jid;
+        } else if (!matchFluxo && (jid.indexOf(val) >= 0 || (job.label && job.label.toUpperCase().indexOf(val) >= 0))) {
+          matchFluxo = jid;
+        }
+      });
+    });
+    var found = matchFluxoExact || matchFluxo;
+    if (found) {
+      // Destaca na sidebar e abre o grafo do job
+      var sidebarItem = document.querySelector('.fluxo-imported-item[data-jid="' + found + '"]');
+      _fluxoSelecionarJobSidebar(found, sidebarItem);
+      return;
+    }
+  }
+
+  toast('Nenhum resultado para: ' + val, 3000);
 }
 
 function limpar() {
