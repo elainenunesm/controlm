@@ -410,7 +410,6 @@ header .subtitle { margin-left: auto; font-size: 11px; opacity: 0.7; }
 .legend-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
 
 /* ---------- Calendário ---------- */
-#panel-calendario { overflow: hidden; display: flex; flex-direction: column; }
 .cal-toolbar {
   padding: 10px 16px;
   display: flex;
