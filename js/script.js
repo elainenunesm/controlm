@@ -3,40 +3,10 @@
 // ============================================================
 'use strict';
 
-// ── DB de jobs ─────────────────────────────────────────────
-var DB = {
-  PROG1: {
-    tipo: 'programa', descricao: 'Programa principal de processamento de clientes',
-    executadoPor: 'JOB_FINANCEIRO', stepExec: 'STEP01 EXEC PROG1',
-    leArquivo: 'CLIENTES.ENTRADA', geraArquivo: 'CLIENTES.SAIDA',
-    proxPrograna: 'PROG2', transmissao: 'Envio FTP', status: 'ATIVO', ambiente: 'PRODUCAO'
-  },
-  PROG2: {
-    tipo: 'programa', descricao: 'Programa secundario de validacao de saida',
-    executadoPor: 'JOB_FINANCEIRO', stepExec: 'STEP02 EXEC PROG2',
-    leArquivo: 'CLIENTES.SAIDA', geraArquivo: 'RESULTADO.FINAL',
-    proxPrograna: 'Envio FTP', transmissao: 'Envio FTP', status: 'ATIVO', ambiente: 'PRODUCAO'
-  },
-  JOB_FINANCEIRO: {
-    tipo: 'job', descricao: 'Job scheduler financeiro - aciona programas de clientes',
-    executadoPor: 'SCHEDULER', stepExec: 'STEP01 EXEC PROG1 / STEP02 EXEC PROG2',
-    leArquivo: '-', geraArquivo: '-', proxPrograna: '-', transmissao: '-',
-    status: 'ATIVO', ambiente: 'PRODUCAO'
-  },
-  'CLIENTES.SAIDA': {
-    tipo: 'arquivo', descricao: 'Arquivo de saida gerado por PROG1, consumido por PROG2',
-    executadoPor: '-', stepExec: '-', leArquivo: '-', geraArquivo: '-',
-    proxPrograna: 'PROG2', transmissao: 'Envio FTP', status: 'ATIVO', ambiente: 'PRODUCAO'
-  },
-  'Envio FTP': {
-    tipo: 'transmissao', descricao: 'Transmissao FTP para servidor externo',
-    executadoPor: 'PROG2', stepExec: '-', leArquivo: 'RESULTADO.FINAL',
-    geraArquivo: '-', proxPrograna: '-', transmissao: 'EXTERNO',
-    status: 'ALERTA', ambiente: 'EXTERNO'
-  }
-};
+// ── DB de jobs (vazio – populado via importação) ──────────
+var DB = {};
 
-var currentJob = 'PROG1';
+var currentJob = null;
 var cy = null;
 
 // ── Estado do fluxo TXT importado ─────────────────────────
@@ -297,8 +267,12 @@ function arrDOM(tipo) {
 function renderInvestigacao(nome) {
   var d = DB[nome];
   var c = document.getElementById('cardInvestigacao');
-  if (!c || !d) return;
+  if (!c) return;
   c.innerHTML = '';
+  if (!d) {
+    c.innerHTML = '<div style="color:#aaa;font-style:italic;padding:24px;text-align:center;">Pesquise um job ou importe um fluxo TXT.</div>';
+    return;
+  }
 
   var tree = document.createElement('div');
   tree.className = 'inv-tree';
@@ -336,8 +310,12 @@ function renderInvestigacao(nome) {
 function renderImpacto(nome) {
   var d = DB[nome];
   var c = document.getElementById('cardImpacto');
-  if (!c || !d) return;
+  if (!c) return;
   c.innerHTML = '';
+  if (!d) {
+    c.innerHTML = '<div style="color:#aaa;font-style:italic;padding:24px;text-align:center;">Pesquise um job ou importe um fluxo TXT.</div>';
+    return;
+  }
 
   var titulo = document.createElement('div');
   titulo.style.cssText = 'font-size:14px;font-weight:700;margin-bottom:6px;color:#1a2a4a;';
@@ -1150,14 +1128,24 @@ function _fluxoExtractDeps(line, job, groupData) {
 function _fluxoSyncJobsToSidebar() {
   var list = document.getElementById('job-list');
   if (!list) return;
+
   // Remove itens anteriores do fluxo
   list.querySelectorAll('.fluxo-imported-item, .fluxo-sidebar-divider').forEach(function(el) { el.remove(); });
-  if (!_fluxoData) return;
+
+  // Controla mensagem vazia
+  var emptyMsg = document.getElementById('sidebar-empty-msg');
+
+  if (!_fluxoData) {
+    if (emptyMsg) emptyMsg.style.display = '';
+    return;
+  }
+
+  if (emptyMsg) emptyMsg.style.display = 'none';
 
   // Cabeçalho separador
   var div = document.createElement('li');
   div.className = 'fluxo-sidebar-divider';
-  div.textContent = '📂 Importados do Fluxo TXT';
+  div.textContent = '\uD83D\uDCC2 Fluxo importado';
   list.appendChild(div);
 
   var addedJobs = {};
@@ -1714,5 +1702,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.key === 'Enter') pesquisar();
   });
   renderCalendario();
-  renderTudo(currentJob);
+  renderInvestigacao(null);
+  renderImpacto(null);
 });

@@ -20,7 +20,7 @@
 
   <!-- TOOLBAR -->
   <div id="toolbar">
-    <input type="text" id="searchInput" placeholder="Pesquisar programa ou job..." value="PROG1" />
+    <input type="text" id="searchInput" placeholder="Pesquisar programa ou job..." value="" />
     <button class="btn btn-primary" onclick="pesquisar()">&#128269; Pesquisar</button>
     <button class="btn btn-secondary" onclick="limpar()">✕ Limpar</button>
   </div>
@@ -40,20 +40,23 @@
     <aside id="sidebar">
       <div class="sidebar-title">Jobs / Programas</div>
       <ul class="job-list" id="job-list">
-        <li class="job-item active" onclick="selecionarJob('PROG1', this)">
+        <li class="job-item job-item-demo" style="display:none" onclick="selecionarJob('PROG1', this)">
           <span class="job-dot dot-green"></span> PROG1
         </li>
-        <li class="job-item" onclick="selecionarJob('PROG2', this)">
+        <li class="job-item job-item-demo" style="display:none" onclick="selecionarJob('PROG2', this)">
           <span class="job-dot dot-blue"></span> PROG2
         </li>
-        <li class="job-item" onclick="selecionarJob('JOB_FINANCEIRO', this)">
+        <li class="job-item job-item-demo" style="display:none" onclick="selecionarJob('JOB_FINANCEIRO', this)">
           <span class="job-dot dot-orange"></span> JOB_FINANCEIRO
         </li>
-        <li class="job-item" onclick="selecionarJob('CLIENTES.SAIDA', this)">
+        <li class="job-item job-item-demo" style="display:none" onclick="selecionarJob('CLIENTES.SAIDA', this)">
           <span class="job-dot dot-purple"></span> CLIENTES.SAIDA
         </li>
-        <li class="job-item" onclick="selecionarJob('Envio FTP', this)">
+        <li class="job-item job-item-demo" style="display:none" onclick="selecionarJob('Envio FTP', this)">
           <span class="job-dot dot-red"></span> Envio FTP
+        </li>
+        <li id="sidebar-empty-msg" class="job-item" style="color:#aaa;font-style:italic;font-size:11px;cursor:default;pointer-events:none;">
+          Importe um fluxo TXT
         </li>
       </ul>
     </aside>
@@ -65,7 +68,7 @@
       <div class="panel active" id="panel-investigacao">
         <div class="section-title">
           Resultado da Investigação
-          <span class="tag" id="tagInvestigacao">PROG1</span>
+          <span class="tag" id="tagInvestigacao"></span>
         </div>
         <div class="card" id="cardInvestigacao"></div>
       </div>
@@ -74,7 +77,7 @@
       <div class="panel" id="panel-fluxo">
         <div class="section-title">
           Fluxo de Execução
-          <span class="tag" id="tagFluxo">PROG1</span>
+          <span class="tag" id="tagFluxo"></span>
         </div>
 
         <!-- Toolbar de importação TXT -->
@@ -124,7 +127,7 @@
       <div class="panel" id="panel-impacto">
         <div class="section-title">
           Análise de Impacto
-          <span class="tag" id="tagImpacto">PROG1</span>
+          <span class="tag" id="tagImpacto"></span>
         </div>
         <div class="card" id="cardImpacto"></div>
       </div>
