@@ -223,7 +223,10 @@ function pesquisar() {
   }
 }
 
-function limpar() { document.getElementById('searchInput').value = ''; }
+function limpar() {
+  document.getElementById('searchInput').value = '';
+  if (_fluxoData) fluxoLimpar();
+}
 
 function selecionarJob(nome, el) {
   document.querySelectorAll('.job-item').forEach(function(li) { li.classList.remove('active'); });
@@ -1268,7 +1271,7 @@ function fluxoToggleView() {
     if (lv)  lv.style.display  = '';
     _fluxoRenderLista();
   } else {
-    if (btn) btn.textContent = '\u{1F4CB} Ver Lista';
+    if (btn) btn.textContent = '\uD83D\uDCCB Ver Lista';
     if (cyC) cyC.style.display = '';
     if (lv)  lv.style.display  = 'none';
     if (!cy) renderFluxoFromParsed();
@@ -1445,7 +1448,7 @@ function fluxoLimpar() {
   var cyC = document.getElementById('cy-container');
   if (cyC) cyC.style.display = '';
   var btn = document.getElementById('fluxoListaBtn');
-  if (btn) btn.textContent = '\u{1F4CB} Ver Lista';
+  if (btn) btn.textContent = '\uD83D\uDCCB Ver Lista';
   _fluxoMostrarControles(false);
   // Remove jobs importados da sidebar
   _fluxoSyncJobsToSidebar();
