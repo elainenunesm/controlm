@@ -29,6 +29,7 @@
   <div id="tabs">
     <div class="tab active" onclick="mostrarTab('investigacao', this)">&#128269; Investigação</div>
     <div class="tab" onclick="mostrarTab('fluxo', this)">&#128202; Fluxo de Execução</div>
+    <div class="tab" onclick="mostrarTab('calendario', this)">&#128197; Calendário</div>
     <div class="tab" onclick="mostrarTab('impacto', this)">&#9889; Análise de Impacto</div>
   </div>
 
@@ -114,6 +115,29 @@
         <!-- Lista de execução (alternativa ao grafo) -->
         <div id="fluxoListaView" style="display:none;overflow-y:auto;flex:1;padding:14px 18px;"></div>
 
+      </div>
+
+      <!-- ── Calendário ── -->
+      <div class="panel" id="panel-calendario">
+        <div class="section-title">
+          Calendário de Execução
+          <span class="tag" id="tagCalendario"></span>
+        </div>
+        <div class="cal-toolbar">
+          <button class="btn btn-primary" onclick="calImportar()">
+            &#128196; Importar Calendário (.txt)
+          </button>
+          <span id="calFileLabel" style="font-size:12px;color:#666;flex:1;"></span>
+          <label style="font-size:12px;font-weight:700;color:#555;">Visualização:</label>
+          <select id="calViewSelect" onchange="calMudarVisu()"
+            style="padding:5px 10px;border:1.5px solid #c5cfe0;border-radius:6px;font-size:12px;">
+            <option value="heatmap">Heatmap Anual</option>
+            <option value="table">Tabela por Mês</option>
+            <option value="detail">Detalhe / Padrões</option>
+          </select>
+        </div>
+        <div id="cal-content"></div>
+        <input type="file" id="calFileInput" accept=".txt,.cal" style="display:none" onchange="calOnFile(event)" />
       </div>
 
       <!-- ── Impacto ── -->

@@ -232,6 +232,7 @@ function selecionarJob(nome, el) {
   document.getElementById('searchInput').value = nome;
   currentJob = nome;
   renderTudo(nome);
+  calSelecionarJob(nome);
   mostrarTab('investigacao', document.querySelectorAll('.tab')[0]);
 }
 
@@ -602,44 +603,60 @@ function _calParse(src, filename) {
   if (lbl) lbl.textContent = filename + ' — ' + Object.keys(result.jobs).length + ' jobs / ano ' + result.year;
 
   _calSyncJobsToSidebar();
+  // Se há um job selecionado com dados no calendário, seleciona
+  if (currentJob && result.jobs[currentJob.toUpperCase()]) {
+    _calSelectedJob = currentJob.toUpperCase();
+  }
   renderCalendario();
-  toast('Calendario importado: ' + Object.keys(result.jobs).length + ' job(s).');
-  mostrarTab('calendario', document.querySelectorAll('.tab')[3]);
+  toast('Calend\u00E1rio importado: ' + Object.keys(result.jobs).length + ' job(s).');
+  mostrarTab('calendario', document.querySelectorAll('.tab')[2]);
 }
 
 function _calSyncJobsToSidebar() {
   if (!_calData) return;
   var list = document.getElementById('job-list');
-  var existentes = {};
-  list.querySelectorAll('.job-item').forEach(function(li) {
-    existentes[li.textContent.trim()] = true;
-  });
-  Object.keys(_calData.jobs).forEach(function(jn) {
-    if (existentes[jn]) return;
-    if (!DB[jn]) {
-      DB[jn] = {
-        tipo: 'job', descricao: 'Job importado do calendario Control-M',
-        executadoPor: '-', stepExec: '-', leArquivo: '-', geraArquivo: '-',
-        proxPrograna: '-', transmissao: '-', status: 'IMPORTADO', ambiente: 'PRODUCAO'
-      };
+  // Remove ícones de calendário anteriores
+  list.querySelectorAll('.cal-sidebar-icon').forEach(function(el) { el.remove(); });
+  // Adiciona ícone de calendário nos itens que têm dados
+  list.querySelectorAll('.job-item[data-jid]').forEach(function(li) {
+    var jid = li.getAttribute('data-jid');
+    if (jid && _calData.jobs[jid.toUpperCase()]) {
+      var ico = document.createElement('span');
+      ico.className = 'cal-sidebar-icon';
+      ico.title = 'Tem dados de calendário';
+      ico.textContent = '\uD83D\uDCC5';
+      li.appendChild(ico);
     }
-    var li = document.createElement('li');
-    li.className = 'job-item';
-    li.onclick = (function(nome) { return function() { selecionarJob(nome, this); }; })(jn);
-    var dot = document.createElement('span');
-    dot.className = 'job-dot dot-blue';
-    li.appendChild(dot);
-    li.appendChild(document.createTextNode(' ' + jn));
-    list.appendChild(li);
   });
+}
+
+// ── Seleciona job no calendário (chamado ao clicar na sidebar) ──
+function calSelecionarJob(jid) {
+  if (!jid) return;
+  var jup = jid.toUpperCase();
+  _calSelectedJob = jup;
+  var tag = document.getElementById('tagCalendario');
+  if (tag) tag.textContent = jup;
+  if (_calData) renderCalendario();
 }
 
 // ── Render calendário ──────────────────────────────────────
 function renderCalendario() {
   var c = document.getElementById('cal-content');
   if (!c) return;
+
+  var tag = document.getElementById('tagCalendario');
+  if (tag && _calSelectedJob) tag.textContent = _calSelectedJob;
+
   if (!_calData) {
-    c.innerHTML = '<div class="cal-empty"><div class="cal-empty-icon">📅</div><div>Importe um arquivo de calendario Control-M (.txt)</div></div>';
+    c.innerHTML = '<div class="cal-empty"><div class="cal-empty-icon">\uD83D\uDCC5</div><div>Importe um arquivo de calend\u00E1rio Control-M (.txt)</div></div>';
+    return;
+  }
+  // Job selecionado não tem dados de calendário
+  if (_calSelectedJob && !_calData.jobs[_calSelectedJob]) {
+    c.innerHTML = '<div class="cal-empty"><div class="cal-empty-icon">\uD83D\uDD0D</div>' +
+      '<div>Nenhum dado de calend\u00E1rio para <strong>' + _calSelectedJob + '</strong></div>' +
+      '<div style="font-size:11px;color:#aaa;margin-top:6px;">Verifique se o arquivo TXT cont\u00E9m este job.</div></div>';
     return;
   }
   var mode = document.getElementById('calViewSelect') ? document.getElementById('calViewSelect').value : 'heatmap';
@@ -1408,6 +1425,10 @@ function _fluxoSyncJobsToSidebar() {
 function _fluxoSelecionarJobSidebar(jid, el) {
   document.querySelectorAll('.job-item').forEach(function(li) { li.classList.remove('active'); });
   if (el) el.classList.add('active');
+
+  // Atualiza calendário com o job selecionado
+  calSelecionarJob(jid);
+  currentJob = jid;
 
   // Garante que estamos na aba Fluxo em modo grafo
   _fluxoViewMode = 'graph';
