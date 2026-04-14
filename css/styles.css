@@ -625,10 +625,40 @@ header .subtitle { margin-left: auto; font-size: 11px; opacity: 0.7; }
   font-size: 11px;
   color: #666;
   flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  overflow: hidden;
+}
+/* Chip de arquivo importado */
+.fluxo-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #e8f0ff;
+  border: 1px solid #b3c6f7;
+  border-radius: 12px;
+  padding: 2px 8px 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #2a52a0;
+  white-space: nowrap;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
+.fluxo-source-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #7a90c8;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 0 0 2px;
+  flex-shrink: 0;
+}
+.fluxo-source-remove:hover { color: #c0392b; }
 .fluxo-group-filter {
   display: flex;
   flex-wrap: wrap;

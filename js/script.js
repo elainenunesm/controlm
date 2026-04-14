@@ -11,9 +11,10 @@ var cy = null;
 
 // ── Estado do fluxo TXT importado ─────────────────────────
 var _fluxoData           = null;  // { groupName: { jobs:{}, edges:[] } }
-var _fluxoSelectedGroups = [];   // grupos visíveis
-var _fluxoShowPlan       = true; // mostrar nós PLAN/GERADOR
-var _planCollapsed       = {};   // { planId: bool }
+var _fluxoSelectedGroups = [];    // grupos visíveis
+var _fluxoSources        = [];    // [{ filename, groups:[] }]  — fontes importadas
+var _fluxoShowPlan       = true;  // mostrar nós PLAN/GERADOR
+var _planCollapsed       = {};    // { planId: bool }
 var _fluxoViewMode       = 'graph'; // 'graph' | 'list'
 
 // ── Tipo -> classe visual ──────────────────────────────────
@@ -1197,24 +1198,41 @@ function _fluxoParse(src, filename) {
     return;
   }
 
-  _fluxoData           = result;
-  _fluxoSelectedGroups = Object.keys(result);
-  _fluxoShowPlan       = true;
-  _planCollapsed       = {};
+  // ── Acumula (merge) no _fluxoData existente ──────────────
+  if (!_fluxoData) _fluxoData = {};
+  Object.keys(result).forEach(function(g) {
+    if (_fluxoData[g]) {
+      // Merge jobs (job existente não é sobrescrito)
+      Object.keys(result[g].jobs).forEach(function(jid) {
+        if (!_fluxoData[g].jobs[jid]) _fluxoData[g].jobs[jid] = result[g].jobs[jid];
+      });
+      // Merge edges sem duplicar
+      result[g].edges.forEach(function(e) {
+        _fluxoAddEdge(_fluxoData[g], e.from, e.to, e.status, e.dashed, e.edgeType);
+      });
+    } else {
+      _fluxoData[g] = result[g];
+    }
+    // Adiciona ao filtro de grupos selecionados se ainda não estiver
+    if (_fluxoSelectedGroups.indexOf(g) < 0) _fluxoSelectedGroups.push(g);
+  });
+
+  // Registra a fonte (arquivo importado)
+  _fluxoSources.push({ filename: filename, groups: Object.keys(result) });
 
   // Atualiza UI
   _fluxoRenderGroupFilter();
   _fluxoSyncJobsToSidebar();
   _fluxoMostrarControles(true);
 
-  var totalJobs = Object.keys(result).reduce(function(acc, g) {
-    return acc + Object.keys(result[g].jobs).length;
+  var totalJobs = Object.keys(_fluxoData).reduce(function(acc, g) {
+    return acc + Object.keys(_fluxoData[g].jobs).length;
   }, 0);
-  var lbl = document.getElementById('fluxoFileLabel');
-  if (lbl) lbl.textContent = filename + ' \u2014 ' + Object.keys(result).length + ' grupos / ' + totalJobs + ' jobs';
+  _fluxoAtualizarLabel();
 
   mostrarTab('fluxo', document.querySelectorAll('.tab')[1]);
-  toast('Fluxo importado: ' + totalJobs + ' jobs em ' + Object.keys(result).length + ' grupo(s).', 4000);
+  var novosJobs = Object.keys(result).reduce(function(acc, g) { return acc + Object.keys(result[g].jobs).length; }, 0);
+  toast('Importado: ' + novosJobs + ' jobs de ' + Object.keys(result).length + ' grupo(s) — Total: ' + totalJobs + ' jobs.', 4000);
 }
 
 // Adiciona aresta sem duplicar
@@ -1226,10 +1244,65 @@ function _fluxoAddEdge(groupData, from, to, status, dashed, edgeType) {
   }
 }
 
-// Extrai dependências de uma linha: ORIGEM-DESTINO-(OK|CODES|STAT|digits)
-// Extrai dependências de uma linha de continuação Control-M
-// Formato: ORIGEM-DESTINO-OK  (DESTINO depende de ORIGEM)
-// Nas linhas de continuação do JOB FLOW o DESTINO deve ser o job atual.
+// ── Atualiza o label de arquivos importados ──────────────
+function _fluxoAtualizarLabel() {
+  var lbl = document.getElementById('fluxoFileLabel');
+  if (!lbl) return;
+  lbl.innerHTML = '';
+  _fluxoSources.forEach(function(src) {
+    var span = document.createElement('span');
+    span.className = 'fluxo-source-chip';
+    span.title = src.groups.join(', ');
+    span.textContent = src.filename;
+    var btn = document.createElement('button');
+    btn.className = 'fluxo-source-remove';
+    btn.title = 'Remover ' + src.filename;
+    btn.textContent = '\u00D7';
+    btn.onclick = (function(fname) {
+      return function(e) { e.stopPropagation(); _fluxoRemoveSource(fname); };
+    })(src.filename);
+    span.appendChild(btn);
+    lbl.appendChild(span);
+  });
+}
+
+// ── Remove um arquivo importado do fluxo ─────────────────
+function _fluxoRemoveSource(filename) {
+  var src = _fluxoSources.find(function(s) { return s.filename === filename; });
+  if (!src) return;
+
+  // Remove grupos que pertencem SOMENTE a este arquivo
+  src.groups.forEach(function(g) {
+    var usedByOther = _fluxoSources.some(function(s) {
+      return s.filename !== filename && s.groups.indexOf(g) >= 0;
+    });
+    if (!usedByOther) {
+      delete _fluxoData[g];
+      _fluxoSelectedGroups = _fluxoSelectedGroups.filter(function(x) { return x !== g; });
+    }
+  });
+
+  _fluxoSources = _fluxoSources.filter(function(s) { return s.filename !== filename; });
+
+  if (Object.keys(_fluxoData).length === 0) {
+    _fluxoData = null;
+    _fluxoMostrarControles(false);
+  }
+
+  if (cy) { cy.destroy(); cy = null; }
+  _fluxoRenderGroupFilter();
+  _fluxoSyncJobsToSidebar();
+  _fluxoAtualizarLabel();
+
+  if (_fluxoData) {
+    renderFluxoFromParsed();
+    toast('Arquivo "' + filename + '" removido.', 3000);
+  } else {
+    toast('Todos os arquivos removidos.', 3000);
+  }
+}
+
+
 // Aceita também padrão inverso (FROM = job atual) para robustez.
 function _fluxoExtractDeps(line, job, groupData) {
   if (!job) return;
@@ -1266,14 +1339,47 @@ function _fluxoSyncJobsToSidebar() {
 
   if (emptyMsg) emptyMsg.style.display = 'none';
 
-  // Cabeçalho separador
-  var div = document.createElement('li');
-  div.className = 'fluxo-sidebar-divider';
-  div.textContent = '\uD83D\uDCC2 Fluxo importado';
-  list.appendChild(div);
-
+  // Agrupa por arquivo importado
   var addedJobs = {};
+  _fluxoSources.forEach(function(src) {
+    // Cabeçalho do arquivo
+    var divHdr = document.createElement('li');
+    divHdr.className = 'fluxo-sidebar-divider';
+    divHdr.textContent = '\uD83D\uDCC2 ' + src.filename;
+    divHdr.setAttribute('data-source', src.filename);
+    list.appendChild(divHdr);
+
+    // Jobs de cada grupo deste arquivo (ordenados)
+    src.groups.forEach(function(gn) {
+      var gd = _fluxoData[gn];
+      if (!gd) return;
+      Object.keys(gd.jobs).sort().forEach(function(jid) {
+        var job = gd.jobs[jid];
+        var li = document.createElement('li');
+        li.className = 'job-item fluxo-imported-item';
+        li.setAttribute('data-jid', jid);
+        li.title = (job.label || jid) + ' [' + gn + ']';
+        li.onclick = (function(id, elem) {
+          return function() { _fluxoSelecionarJobSidebar(id, elem); };
+        })(jid, li);
+        var dot = document.createElement('span');
+        dot.className = 'job-dot ' + (job.type === 'GERADOR' ? 'dot-orange' : job.type === 'GERADO' ? 'dot-purple' : 'dot-blue');
+        li.appendChild(dot);
+        li.appendChild(document.createTextNode(' ' + jid));
+        var grpTag = document.createElement('span');
+        grpTag.className = 'fluxo-sidebar-group-tag';
+        grpTag.textContent = gn;
+        li.appendChild(grpTag);
+        list.appendChild(li);
+        addedJobs[jid] = true;
+      });
+    });
+  });
+
+  // Jobs de grupos não rastreados em _fluxoSources (segurança)
   Object.keys(_fluxoData).forEach(function(gn) {
+    var orphanSrc = _fluxoSources.some(function(s) { return s.groups.indexOf(gn) >= 0; });
+    if (orphanSrc) return;
     var gd = _fluxoData[gn];
     Object.keys(gd.jobs).sort().forEach(function(jid) {
       if (addedJobs[jid]) return;
@@ -1281,6 +1387,7 @@ function _fluxoSyncJobsToSidebar() {
       var job = gd.jobs[jid];
       var li = document.createElement('li');
       li.className = 'job-item fluxo-imported-item';
+      li.setAttribute('data-jid', jid);
       li.title = (job.label || jid) + ' [' + gn + ']';
       li.onclick = (function(id, elem) {
         return function() { _fluxoSelecionarJobSidebar(id, elem); };
@@ -1683,10 +1790,11 @@ function _fluxoRenderLista() {
 function fluxoLimpar() {
   _fluxoData           = null;
   _fluxoSelectedGroups = [];
+  _fluxoSources        = [];
   _planCollapsed       = {};
   _fluxoViewMode       = 'graph';
   var lbl = document.getElementById('fluxoFileLabel');
-  if (lbl) lbl.textContent = '';
+  if (lbl) lbl.innerHTML = '';
   var gf = document.getElementById('fluxoGroupFilter');
   if (gf) gf.innerHTML = '';
   var lv = document.getElementById('fluxoListaView');
