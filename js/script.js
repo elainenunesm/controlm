@@ -1105,6 +1105,7 @@ function _fluxoParse(src, filename) {
 
   // Atualiza UI
   _fluxoRenderGroupFilter();
+  _fluxoSyncJobsToSidebar();
   _fluxoMostrarControles(true);
 
   var totalJobs = Object.keys(result).reduce(function(acc, g) {
@@ -1142,6 +1143,77 @@ function _fluxoExtractDeps(line, job, groupData) {
 }
 
 // ── Render do filtro de grupos ───────────────────────────
+// ── Sincroniza jobs importados com a sidebar ──────────────
+function _fluxoSyncJobsToSidebar() {
+  var list = document.getElementById('job-list');
+  if (!list) return;
+  // Remove itens anteriores do fluxo
+  list.querySelectorAll('.fluxo-imported-item, .fluxo-sidebar-divider').forEach(function(el) { el.remove(); });
+  if (!_fluxoData) return;
+
+  // Cabeçalho separador
+  var div = document.createElement('li');
+  div.className = 'fluxo-sidebar-divider';
+  div.textContent = '📂 Importados do Fluxo TXT';
+  list.appendChild(div);
+
+  var addedJobs = {};
+  Object.keys(_fluxoData).forEach(function(gn) {
+    var gd = _fluxoData[gn];
+    Object.keys(gd.jobs).sort().forEach(function(jid) {
+      if (addedJobs[jid]) return;
+      addedJobs[jid] = true;
+      var job = gd.jobs[jid];
+      var li = document.createElement('li');
+      li.className = 'job-item fluxo-imported-item';
+      li.title = (job.label || jid) + ' [' + gn + ']';
+      li.onclick = (function(id, elem) {
+        return function() { _fluxoSelecionarJobSidebar(id, elem); };
+      })(jid, li);
+      var dot = document.createElement('span');
+      dot.className = 'job-dot ' + (job.type === 'GERADOR' ? 'dot-orange' : job.type === 'GERADO' ? 'dot-purple' : 'dot-blue');
+      li.appendChild(dot);
+      li.appendChild(document.createTextNode(' ' + jid));
+      var grpTag = document.createElement('span');
+      grpTag.className = 'fluxo-sidebar-group-tag';
+      grpTag.textContent = gn;
+      li.appendChild(grpTag);
+      list.appendChild(li);
+    });
+  });
+}
+
+function _fluxoSelecionarJobSidebar(jid, el) {
+  document.querySelectorAll('.job-item').forEach(function(li) { li.classList.remove('active'); });
+  if (el) el.classList.add('active');
+
+  // Garante que estamos na aba Fluxo
+  mostrarTab('fluxo', document.querySelectorAll('.tab')[1]);
+
+  // Muda para vista lista se ainda estiver no grafo
+  if (_fluxoViewMode !== 'list') {
+    fluxoToggleView();
+  }
+
+  // Rola até a linha do job e destaca ela
+  setTimeout(function() {
+    var lv = document.getElementById('fluxoListaView');
+    if (!lv) return;
+    var rows = lv.querySelectorAll('.fluxo-lista-row');
+    for (var i = 0; i < rows.length; i++) {
+      var spans = rows[i].querySelectorAll('.fljob-name span');
+      // span[1] é o nome (após o seq #N)
+      if (spans[1] && spans[1].textContent === jid) {
+        rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        rows[i].style.transition = 'box-shadow 0.2s';
+        rows[i].style.boxShadow  = '0 0 0 3px #3a6fc880';
+        setTimeout(function(r) { r.style.boxShadow = ''; }, 1800, rows[i]);
+        break;
+      }
+    }
+  }, 200);
+}
+
 function _fluxoRenderGroupFilter() {
   var c = document.getElementById('fluxoGroupFilter');
   if (!c || !_fluxoData) return;
@@ -1375,6 +1447,8 @@ function fluxoLimpar() {
   var btn = document.getElementById('fluxoListaBtn');
   if (btn) btn.textContent = '\u{1F4CB} Ver Lista';
   _fluxoMostrarControles(false);
+  // Remove jobs importados da sidebar
+  _fluxoSyncJobsToSidebar();
   if (cy) { cy.destroy(); cy = null; }
   renderCytoscape(currentJob);
   toast('Fluxo TXT removido. Dados internos restaurados.');

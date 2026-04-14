@@ -175,6 +175,33 @@ header .subtitle { margin-left: auto; font-size: 11px; opacity: 0.7; }
 .dot-purple { background: #9b59b6; }
 .dot-gray   { background: #7f8c8d; }
 
+/* Divisor de grupos na sidebar */
+.fluxo-sidebar-divider {
+  list-style: none;
+  padding: 6px 14px 4px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #3a6fc8;
+  background: #f0f4fc;
+  border-top: 1.5px solid #dde3ec;
+  border-bottom: 1px solid #dde3ec;
+  flex-shrink: 0;
+}
+.fluxo-sidebar-group-tag {
+  font-size: 9px;
+  color: #aaa;
+  display: block;
+  padding-left: 18px;
+  line-height: 1.4;
+  font-weight: 400;
+}
+.job-item.fluxo-imported-item.highlight-row {
+  box-shadow: inset 3px 0 0 #3a6fc8;
+  background: #dce8fb;
+}
+
 /* ---------- Content ---------- */
 #content {
   flex: 1;
