@@ -1178,31 +1178,165 @@ function _fluxoSelecionarJobSidebar(jid, el) {
   document.querySelectorAll('.job-item').forEach(function(li) { li.classList.remove('active'); });
   if (el) el.classList.add('active');
 
-  // Garante que estamos na aba Fluxo
+  // Garante que estamos na aba Fluxo em modo grafo
+  _fluxoViewMode = 'graph';
+  var cyC = document.getElementById('cy-container');
+  var lv  = document.getElementById('fluxoListaView');
+  var btn = document.getElementById('fluxoListaBtn');
+  if (cyC) cyC.style.display = '';
+  if (lv)  { lv.style.display = 'none'; lv.innerHTML = ''; }
+  if (btn) btn.textContent = '\uD83D\uDCCB Ver Lista';
+
   mostrarTab('fluxo', document.querySelectorAll('.tab')[1]);
 
-  // Muda para vista lista se ainda estiver no grafo
-  if (_fluxoViewMode !== 'list') {
-    fluxoToggleView();
-  }
+  setTimeout(function() { _fluxoRenderJobFlow(jid); }, 80);
+}
 
-  // Rola até a linha do job e destaca ela
-  setTimeout(function() {
-    var lv = document.getElementById('fluxoListaView');
-    if (!lv) return;
-    var rows = lv.querySelectorAll('.fluxo-lista-row');
-    for (var i = 0; i < rows.length; i++) {
-      var spans = rows[i].querySelectorAll('.fljob-name span');
-      // span[1] é o nome (após o seq #N)
-      if (spans[1] && spans[1].textContent === jid) {
-        rows[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
-        rows[i].style.transition = 'box-shadow 0.2s';
-        rows[i].style.boxShadow  = '0 0 0 3px #3a6fc880';
-        setTimeout(function(r) { r.style.boxShadow = ''; }, 1800, rows[i]);
-        break;
+// ── Grafo de fluxo de um job específico ─────────────────
+// Mostra: predecessores → job central → sucessores
+function _fluxoRenderJobFlow(jid) {
+  if (!_fluxoData) return;
+  var container = document.getElementById('cy');
+  if (!container) return;
+  if (cy) { cy.destroy(); cy = null; }
+
+  // Coleta job e suas arestas de todos os grupos
+  var centralJob = null;
+  var allEdges   = [];
+  var allJobs    = {};
+
+  Object.keys(_fluxoData).forEach(function(gn) {
+    var gd = _fluxoData[gn];
+    Object.keys(gd.jobs).forEach(function(id) { allJobs[id] = gd.jobs[id]; });
+    gd.edges.forEach(function(e) { allEdges.push(e); });
+  });
+  centralJob = allJobs[jid];
+  if (!centralJob) return;
+
+  // Jobs relevantes: o próprio + predecessores diretos + sucessores diretos
+  var relevantIds = {};
+  relevantIds[jid] = true;
+  allEdges.forEach(function(e) {
+    if (e.to   === jid) relevantIds[e.from] = true;
+    if (e.from === jid) relevantIds[e.to]   = true;
+  });
+
+  var TYPE_COLOR = {
+    NORMAL  : { bg: '#3a6fc8', border: '#2d59a8', shape: 'round-rectangle' },
+    GERADOR : { bg: '#d4910a', border: '#b07000', shape: 'star' },
+    GERADO  : { bg: '#7e3fb0', border: '#5c2d8a', shape: 'ellipse' }
+  };
+
+  var elements = [];
+
+  // Nós
+  Object.keys(relevantIds).forEach(function(id) {
+    var job  = allJobs[id];
+    var type = (job && job.type) || 'NORMAL';
+    var col  = TYPE_COLOR[type] || TYPE_COLOR.NORMAL;
+    var isCentral = (id === jid);
+    var lbl  = id + (job && job.label ? '\n' + job.label.substring(0, 30) + (job.label.length > 30 ? '…' : '') : '');
+    elements.push({
+      data: {
+        id        : id,
+        label     : lbl,
+        tipo      : type,
+        bg        : isCentral ? '#fff' : col.bg,
+        border    : isCentral ? col.bg : col.border,
+        textColor : isCentral ? col.bg : '#fff',
+        borderW   : isCentral ? 4 : 1.5,
+        shape     : col.shape,
+        jobLabel  : job ? (job.label || '') : '',
+        calendar  : job ? (job.calendar || '') : ''
       }
-    }
-  }, 200);
+    });
+  });
+
+  // Arestas relevantes
+  allEdges.forEach(function(e) {
+    if (!relevantIds[e.from] || !relevantIds[e.to]) return;
+    elements.push({
+      data: {
+        source  : e.from,
+        target  : e.to,
+        status  : e.status,
+        dashed  : e.dashed,
+        edgeType: e.edgeType
+      },
+      classes: e.edgeType === 'generation' ? 'gen-edge' : 'dep-edge'
+    });
+  });
+
+  cy = cytoscape({
+    container: container,
+    elements : elements,
+    style: [
+      {
+        selector: 'node',
+        style: {
+          'shape'           : 'data(shape)',
+          'label'           : 'data(label)',
+          'text-valign'     : 'center',
+          'text-halign'     : 'center',
+          'color'           : 'data(textColor)',
+          'font-size'       : '11px',
+          'font-weight'     : '700',
+          'font-family'     : 'Segoe UI, Arial, sans-serif',
+          'background-color': 'data(bg)',
+          'border-color'    : 'data(border)',
+          'border-width'    : 'data(borderW)',
+          'width'           : 'label',
+          'height'          : 40,
+          'padding'         : '12px',
+          'text-wrap'       : 'wrap',
+          'text-max-width'  : '140px'
+        }
+      },
+      {
+        selector: 'node[tipo = "NORMAL"]',
+        style: { 'shape': 'round-rectangle' }
+      },
+      {
+        selector: 'node[tipo = "GERADOR"]',
+        style: { 'shape': 'star', 'height': 50, 'width': 50 }
+      },
+      {
+        selector: 'node[tipo = "GERADO"]',
+        style: { 'shape': 'ellipse', 'border-style': 'dashed' }
+      },
+      {
+        selector: '.dep-edge',
+        style: {
+          'width': 2, 'line-color': '#3a6fc8', 'target-arrow-color': '#3a6fc8',
+          'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
+          'label': 'data(status)', 'font-size': '9px', 'color': '#3a6fc8',
+          'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': '2px'
+        }
+      },
+      {
+        selector: '.gen-edge',
+        style: {
+          'width': 2, 'line-color': '#d4910a', 'target-arrow-color': '#d4910a',
+          'target-arrow-shape': 'triangle', 'curve-style': 'bezier',
+          'line-style': 'dashed', 'label': 'gera',
+          'font-size': '9px', 'color': '#d4910a',
+          'text-background-color': '#fff', 'text-background-opacity': 1, 'text-background-padding': '2px'
+        }
+      }
+    ],
+    layout: { name: 'dagre', rankDir: 'LR', nodeSep: 50, rankSep: 80, padding: 30 },
+    minZoom: 0.2, maxZoom: 3, wheelSensitivity: 0.3
+  });
+
+  cy.on('tap', 'node', function(evt) {
+    var id = evt.target.id();
+    if (id !== jid) _fluxoSelecionarJobSidebar(id, null);
+  });
+  cy.fit(undefined, 30);
+
+  // Atualiza título
+  var tag = document.getElementById('tagFluxo');
+  if (tag) tag.textContent = jid;
 }
 
 function _fluxoRenderGroupFilter() {
