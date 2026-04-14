@@ -523,27 +523,24 @@ function calOnFile(evt) {
 
 // ── Parser Control-M – lógica vertical ───────────────────────────
 // Formato esperado (linha a linha):
-//   JOBS PLANNED FOR 04 2026     → detecta mês/ano
-//   01 02 03 ... 31              → ignorar (números dos dias)
-//   SU MO TU WE TH FR SA        → ignorar (dias da semana)
-//   ---+---+---+---              → separador → encerra bloco
-//   JOBNAME                      → inicia bloco do job
-//   *                            → dia 01 executa
-//   *                            → dia 02 executa
-//   (espaço ou vazio)            → dia 03 NÃO executa
-//   *                            → dia 04 executa
-//   ...até 31 linhas             → uma linha por dia
+// Formato HORIZONTAL — uma linha por job, colunas fixas por dia:
+//
+//  JOBS PLANNED FOR 01 2026
+//
+//            01  02  03  04  05  ...  31
+//            TH  FR  SA  SU  MO  ...  SA
+//            ---+---+---+---+---+...+---
+//   JOBNAME     | * |   |   | * | ...| * |
+//
+//  Regras:
+//  • "JOBS PLANNED FOR MM YYYY"  → define mês/ano vigente
+//  • Linha "01  02  03  ..."     → grava posições de coluna de cada dia
+//  • Linha "---+---+---+..."     → marca início da zona de jobs
+//  • Linha de job: nome à esq.  → para cada dia, verifica raw.slice(col, col+4).includes('*')
+//  • Separador ou novo PLANNED   → reseta zona de jobs
 function _calParse(src, filename) {
   var lines = src.split(/\r?\n/);
   var result = { year: null, jobs: {} };
-
-  // Padrões para classificar linhas
-  var reHeader  = /PRODUCED\s+BY\s+CONTROL|BMC\s+SOFTWARE|JOB\s+PLAN\s+REPORT/i;
-  var rePlanned = /JOBS\s+PLANNED\s+FOR\s+(\w+)\s+(\d{4})/i;
-  var reSep     = /^[-\\=+]{3}/;                          // ---+--- , \---
-  var reDays    = /^\s*\d{1,2}(\s+\d{1,2})+\s*$/;        // 01 02 03 ...
-  var reDoW     = /^(SU|MO|TU|WE|TH|FR|SA)(\s+(SU|MO|TU|WE|TH|FR|SA))+/;
-  var reJobName = /^[A-Z][A-Z0-9_.$@#-]{2,29}$/;         // nome de job: 3-30 chars, maiúsculas
 
   var MONTH_MAP = {
     'JAN':1,'FEB':2,'MAR':3,'APR':4,'MAY':5,'JUN':6,
@@ -551,88 +548,83 @@ function _calParse(src, filename) {
     'FEV':2,'ABR':4,'MAI':5,'AGO':8,'SET':9,'OUT':10,'DEZ':12
   };
 
-  var currentMonth   = null;
-  var currentJobName = null;
-  var dayCounter     = 0;   // índice do dia atual dentro do mês (0-based)
-
-  function finalizarBloco() {
-    currentJobName = null;
-    dayCounter = 0;
-  }
-
-  function registrarDia(executa) {
-    if (!currentJobName || currentMonth === null) return;
-    var mKey = 'M' + (currentMonth < 10 ? '0' : '') + currentMonth;
-    if (!result.jobs[currentJobName][mKey]) {
-      var total = new Date(result.year || new Date().getFullYear(), currentMonth, 0).getDate();
-      result.jobs[currentJobName][mKey] = new Array(total).fill(false);
-    }
-    if (dayCounter < result.jobs[currentJobName][mKey].length) {
-      if (executa) result.jobs[currentJobName][mKey][dayCounter] = true;
-    }
-    dayCounter++;
-  }
+  var currentMonth = null;
+  var dayLine      = null;   // [{day, col}, ...] — posições detectadas no cabeçalho
+  var inData       = false;  // true após linha separadora ---+---
 
   for (var i = 0; i < lines.length; i++) {
     var raw     = lines[i];
     var trimmed = raw.trim();
 
-    // ── JOBS PLANNED FOR MM YYYY ──────────────────────────────────
-    var mPlan = trimmed.match(rePlanned);
+    // ── JOBS PLANNED FOR MM YYYY ──────────────────────────────
+    var mPlan = trimmed.match(/JOBS\s+PLANNED\s+FOR\s+(\w+)\s+(\d{4})/i);
     if (mPlan) {
       var mToken = mPlan[1].toUpperCase();
-      var yr = parseInt(mPlan[2], 10);
+      var yr     = parseInt(mPlan[2], 10);
       if (!result.year) result.year = yr;
       currentMonth = /^\d+$/.test(mToken)
         ? parseInt(mToken, 10)
         : (MONTH_MAP[mToken.slice(0, 3)] || null);
-      finalizarBloco();
+      dayLine = null;
+      inData  = false;
       continue;
     }
 
-    // ── Cabeçalhos conhecidos → ignorar; encerra bloco ────────────
-    if (reHeader.test(trimmed))  { finalizarBloco(); continue; }
-
-    // ── Linha de números de dias (01 02 03 ...) → ignorar ─────────
-    if (reDays.test(trimmed))    { continue; }
-
-    // ── Linha de dias da semana (SU MO TU ...) → ignorar ──────────
-    if (reDoW.test(trimmed))     { continue; }
-
-    // ── Separador (---+---+---) → encerra bloco ───────────────────
-    if (reSep.test(trimmed))     { finalizarBloco(); continue; }
-
-    // ── Barra invertida isolada → ruído, ignorar ──────────────────
-    if (trimmed === '\\')        { continue; }
-
-    // ── Linha completamente vazia (raw.length === 0) → encerra bloco
-    if (raw.length === 0)        { finalizarBloco(); continue; }
-
-    // ── Linha só com espaços (trim = '' mas raw tem conteúdo) ─────
-    // Dentro de bloco: dia sem execução. Fora: ignorar.
-    if (trimmed === '') {
-      if (currentJobName) registrarDia(false);
-      continue;
-    }
-
-    // Daqui pra frente: linha tem conteúdo visível
     if (currentMonth === null) continue;
 
-    // ── Nome de job: maiúsculas/números, isolado na linha ─────────
-    if (reJobName.test(trimmed)) {
-      finalizarBloco();
-      currentJobName = trimmed.toUpperCase();
-      dayCounter = 0;
-      if (!result.jobs[currentJobName]) result.jobs[currentJobName] = {};
+    // ── Linha de números de dias: "  01  02  03  ..." ─────────
+    // Pelo menos 6 números de 1-2 dígitos separados por espaços
+    if (!dayLine && /^\s*\d{1,2}(\s+\d{1,2}){5,}/.test(raw)) {
+      dayLine = [];
+      var dRx = /(\d{1,2})/g;
+      var dm;
+      while ((dm = dRx.exec(raw)) !== null) {
+        dayLine.push({ day: parseInt(dm[1], 10), col: dm.index });
+      }
+      inData = false;
       continue;
     }
 
-    // ── Fora de bloco de job → ignorar ───────────────────────────
-    if (!currentJobName) continue;
+    if (!dayLine) continue;
 
-    // ── Marca de execução diária ──────────────────────────────────
-    // '*' em qualquer posição da linha = executa; qualquer outra = não executa
-    registrarDia(trimmed.indexOf('*') >= 0);
+    // ── Linha de dias da semana → ignorar ─────────────────────
+    if (/^\s*(SU|MO|TU|WE|TH|FR|SA)(\s+(SU|MO|TU|WE|TH|FR|SA))+/i.test(trimmed)) continue;
+
+    // ── Linha separadora ---+---+--- → início da zona de jobs ─
+    if (/^\s*---/.test(raw)) {
+      inData = true;
+      continue;
+    }
+
+    if (!inData) continue;
+
+    // ── Linha vazia ou só espaços → sem job ───────────────────
+    if (!trimmed) continue;
+
+    // ── Linha de job: nome alfanumérico à esquerda ─────────────
+    var jm = trimmed.match(/^([A-Z][A-Z0-9_.$@#-]{1,29})/i);
+    if (!jm) continue;
+    var jobName = jm[1].toUpperCase();
+
+    // Para cada dia, verifica se há '*' na janela de 4 chars
+    // a partir da posição de coluna registrada no cabeçalho
+    var diasExec = [];
+    for (var di = 0; di < dayLine.length; di++) {
+      var col  = dayLine[di].col;
+      var cell = raw.length > col ? raw.slice(col, col + 4) : '    ';
+      diasExec.push(cell.indexOf('*') >= 0);
+    }
+
+    if (!result.jobs[jobName]) result.jobs[jobName] = {};
+    var mKey = 'M' + (currentMonth < 10 ? '0' : '') + currentMonth;
+    if (result.jobs[jobName][mKey]) {
+      // Merge: OR entre múltiplas ocorrências do mesmo job no mesmo mês
+      for (var oi = 0; oi < diasExec.length; oi++) {
+        if (diasExec[oi]) result.jobs[jobName][mKey][oi] = true;
+      }
+    } else {
+      result.jobs[jobName][mKey] = diasExec;
+    }
   }
 
   if (!result.year || Object.keys(result.jobs).length === 0) {
