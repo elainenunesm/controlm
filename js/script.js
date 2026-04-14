@@ -784,14 +784,20 @@ function renderCalHeatmap(container) {
       empty.className = 'cal-day empty';
       dGrid.appendChild(empty);
     }
+    var todayD = new Date();
+    var todayDay   = todayD.getDate();
+    var todayMonth = todayD.getMonth() + 1;
+    var todayYear  = todayD.getFullYear();
+
     for (var dd = 1; dd <= daysInM; dd++) {
       var dow     = (firstDow + dd - 1) % 7;
       var isWE    = dow === 0 || dow === 6;
       var executa = diasM.length >= dd ? diasM[dd-1] : false;
+      var isToday = (dd === todayDay && m === todayMonth && yr === todayYear);
 
       var cell = document.createElement('div');
-      cell.className = 'cal-day' + (executa ? ' run' : ' norun') + (isWE ? ' weekend' : '');
-      cell.title = dd + '/' + (m < 10 ? '0' : '') + m + '/' + yr + (executa ? ' — EXECUTA' : ' — nao executa');
+      cell.className = 'cal-day' + (executa ? ' run' : ' norun') + (isWE ? ' weekend' : '') + (isToday ? ' today' : '');
+      cell.title = dd + '/' + (m < 10 ? '0' : '') + m + '/' + yr + (executa ? ' — EXECUTA' : ' — nao executa') + (isToday ? ' ◀ HOJE' : '');
       cell.textContent = dd;
       (function(dayNum, jobN, mes, runs) {
         cell.onclick = function() {
@@ -845,6 +851,11 @@ function renderCalTable(container) {
   var table = document.createElement('table');
   table.className = 'cal-table';
 
+  var todayT = new Date();
+  var todayTDay  = todayT.getDate();
+  var todayTMon  = todayT.getMonth() + 1;
+  var todayTYear = todayT.getFullYear();
+
   var thead = document.createElement('thead');
   var hr    = document.createElement('tr');
   var th0   = document.createElement('th');
@@ -852,6 +863,9 @@ function renderCalTable(container) {
   hr.appendChild(th0);
   for (var dd2 = 1; dd2 <= daysInM; dd2++) {
     var th = document.createElement('th');
+    var isHoje = (dd2 === todayTDay && selM === todayTMon && yr === todayTYear);
+    th.className = isHoje ? 'today-col' : '';
+    th.title = isHoje ? 'Hoje' : '';
     th.textContent = dd2;
     hr.appendChild(th);
   }
@@ -868,8 +882,10 @@ function renderCalTable(container) {
     for (var d3 = 1; d3 <= daysInM; d3++) {
       var td   = document.createElement('td');
       var exec = dias[d3-1];
+      var isHojeCell = (d3 === todayTDay && selM === todayTMon && yr === todayTYear);
+      if (isHojeCell) td.className = 'today-col';
       td.innerHTML = exec
-        ? '<span class="run-cell" title="' + jn + ' executa ' + d3 + '/' + (selM<10?'0':'') + selM + '"></span>'
+        ? '<span class="run-cell" title="' + jn + ' executa ' + d3 + '/' + (selM<10?'0':'') + selM + (isHojeCell?' — HOJE':'') + '"></span>'
         : '<span class="norun-cell"></span>';
       tr.appendChild(td);
     }

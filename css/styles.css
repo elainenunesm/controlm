@@ -624,6 +624,25 @@ header .subtitle { margin-left: auto; font-size: 11px; opacity: 0.7; }
 .cal-day.empty  { background: transparent; }
 .cal-day.weekend.run   { background: #1a6fc8; }
 .cal-day.weekend.norun { background: #eef2f8; color: #b0bcd4; }
+/* Dia de hoje */
+.cal-day.today {
+  outline: 2.5px solid #e63946;
+  outline-offset: -2px;
+  font-weight: 700;
+  position: relative;
+  z-index: 3;
+}
+.cal-day.today::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e63946;
+}
 
 /* Tabela de jobs por mês */
 .cal-table-wrap { overflow-x: auto; }
@@ -662,6 +681,8 @@ header .subtitle { margin-left: auto; font-size: 11px; opacity: 0.7; }
 }
 .cal-table .run-cell  { background: #0d9e5c; border-radius: 3px; width: 16px; height: 16px; display: inline-block; }
 .cal-table .norun-cell { display: inline-block; width: 16px; height: 16px; }
+.cal-table th.today-col { background: #c0392b !important; }
+.cal-table td.today-col { background: #fff0f0 !important; }
 .cal-table tr:hover td { background: #f0f4ff !important; }
 .cal-table tr:hover td.job-name { background: #dce8fb !important; }
 
