@@ -1,0 +1,180 @@
+﻿<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Análise de Impacto — Control-M</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div id="app-shell">
+
+  <!-- HEADER -->
+  <header id="app-header">
+    <div class="logo">CM</div>
+    <div class="header-text">
+      <h1>Control-M &mdash; Análise de Fluxo e Impacto</h1>
+      <span class="subtitle">Ambiente: PRODUÇÃO</span>
+    </div>
+  </header>
+
+  <!-- TOOLBAR -->
+  <div id="toolbar">
+    <input type="text" id="searchInput" placeholder="Pesquisar programa ou job..." value="PROG1" />
+    <button class="btn btn-primary" onclick="pesquisar()">&#128269; Pesquisar</button>
+    <button class="btn btn-secondary" onclick="limpar()">✕ Limpar</button>
+  </div>
+
+  <!-- TABS -->
+  <div id="tabs">
+    <div class="tab active" onclick="mostrarTab('investigacao', this)">&#128269; Investigação</div>
+    <div class="tab" onclick="mostrarTab('fluxo', this)">&#128202; Fluxo de Execução</div>
+    <div class="tab" onclick="mostrarTab('impacto', this)">&#9889; Análise de Impacto</div>
+    <div class="tab" onclick="mostrarTab('calendario', this)">&#128197; Calendário</div>
+  </div>
+
+  <!-- MAIN AREA -->
+  <div id="main-area">
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar">
+      <div class="sidebar-title">Jobs / Programas</div>
+      <ul class="job-list" id="job-list">
+        <li class="job-item active" onclick="selecionarJob('PROG1', this)">
+          <span class="job-dot dot-green"></span> PROG1
+        </li>
+        <li class="job-item" onclick="selecionarJob('PROG2', this)">
+          <span class="job-dot dot-blue"></span> PROG2
+        </li>
+        <li class="job-item" onclick="selecionarJob('JOB_FINANCEIRO', this)">
+          <span class="job-dot dot-orange"></span> JOB_FINANCEIRO
+        </li>
+        <li class="job-item" onclick="selecionarJob('CLIENTES.SAIDA', this)">
+          <span class="job-dot dot-purple"></span> CLIENTES.SAIDA
+        </li>
+        <li class="job-item" onclick="selecionarJob('Envio FTP', this)">
+          <span class="job-dot dot-red"></span> Envio FTP
+        </li>
+      </ul>
+    </aside>
+
+    <!-- CONTENT PANELS -->
+    <div id="content">
+
+      <!-- ── Investigação ── -->
+      <div class="panel active" id="panel-investigacao">
+        <div class="section-title">
+          Resultado da Investigação
+          <span class="tag" id="tagInvestigacao">PROG1</span>
+        </div>
+        <div class="card" id="cardInvestigacao"></div>
+      </div>
+
+      <!-- ── Fluxo (Cytoscape) ── -->
+      <div class="panel" id="panel-fluxo">
+        <div class="section-title">
+          Fluxo de Execução
+          <span class="tag" id="tagFluxo">PROG1</span>
+        </div>
+
+        <!-- Toolbar de importação TXT -->
+        <div class="fluxo-toolbar">
+          <button class="btn btn-orange" onclick="fluxoImportar()">
+            &#128194; Importar Fluxo TXT
+          </button>
+          <span id="fluxoFileLabel"></span>
+          <button id="fluxoPlanBtn" class="btn btn-secondary" onclick="fluxoTogglePlan()" style="display:none">&#8856; Ocultar PLAN</button>
+          <button id="fluxoLimparBtn" class="btn btn-secondary" onclick="fluxoLimpar()" style="display:none">&#10005; Limpar Fluxo</button>
+        </div>
+        <!-- Filtro de grupos (preenchido via JS após import) -->
+        <div id="fluxoGroupFilter" class="fluxo-group-filter"></div>
+        <!-- Legenda de tipos de nó -->
+        <div class="fluxo-legend">
+          <span class="legend-block"><span class="legend-sq normal"></span> Job Normal</span>
+          <span class="legend-block"><span class="legend-sq gerador" style="clip-path:none;border-radius:3px;background:#d4910a;"></span> Gerador (PLAN*)</span>
+          <span class="legend-block"><span class="legend-sq gerado"></span> Gerado pelo PLAN</span>
+          <span style="color:#7a9dcc;font-weight:700;">&#8594; Dependência</span>
+          <span style="color:#d4910a;font-weight:700;">&#8674; Geração (dashed)</span>
+        </div>
+        <!-- Input invisivel -->
+        <input type="file" id="fluxoFileInput" accept=".txt,.lst" style="display:none" onchange="fluxoOnFile(event)" />
+
+        <div id="cy-container">
+          <div id="cy"></div>
+          <div id="cy-overlay-btns">
+            <button class="cy-btn" onclick="cyZoom(1.2)" title="Zoom in">+</button>
+            <button class="cy-btn" onclick="cyZoom(0.8)" title="Zoom out">−</button>
+            <button class="cy-btn" onclick="cyFit()" title="Ajustar">⊡</button>
+          </div>
+        </div>
+
+        <div class="action-bar">
+          <button class="btn btn-secondary" onclick="mostrarTab('impacto', document.querySelectorAll('.tab')[2])">
+            &#9889; Ver Impacto
+          </button>
+          <button class="btn btn-primary" onclick="exportar()">&#8681; Exportar CSV</button>
+        </div>
+      </div>
+
+      <!-- ── Impacto ── -->
+      <div class="panel" id="panel-impacto">
+        <div class="section-title">
+          Análise de Impacto
+          <span class="tag" id="tagImpacto">PROG1</span>
+        </div>
+        <div class="card" id="cardImpacto"></div>
+      </div>
+
+      <!-- ── Calendário Control-M ── -->
+      <div class="panel" id="panel-calendario">
+        <div class="section-title">
+          Calendário Control-M
+          <span class="tag">Importar</span>
+        </div>
+
+        <div class="cal-toolbar">
+          <button class="btn btn-primary" onclick="calImportar()">
+            &#128196; Importar Calendário (.txt)
+          </button>
+          <span id="calFileLabel" style="font-size:12px;color:#666;flex:1;"></span>
+          <label style="font-size:12px;font-weight:700;color:#555;">Visualização:</label>
+          <select id="calViewSelect" onchange="calMudarVisu()"
+            style="padding:5px 10px;border:1.5px solid #c5cfe0;border-radius:6px;font-size:12px;">
+            <option value="heatmap">Heatmap Anual</option>
+            <option value="table">Tabela por Mês</option>
+            <option value="detail">Detalhe / Padrões</option>
+          </select>
+        </div>
+
+        <div id="cal-content"></div>
+
+        <!-- input de arquivo (invisível) -->
+        <input type="file" id="calFileInput" accept=".txt,.cal" style="display:none" onchange="calOnFile(event)" />
+      </div>
+
+    </div><!-- #content -->
+  </div><!-- #main-area -->
+
+</div><!-- #app-shell -->
+
+<!-- MODAL DETALHES DO NÓ -->
+<div class="modal-overlay" id="modalOverlay" onclick="fecharModal(event)">
+  <div class="modal">
+    <h3 id="modalTitle">Detalhes</h3>
+    <table id="modalTable"></table>
+    <div class="modal-close">
+      <button class="btn btn-primary" onclick="fecharModalBtn()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- LIBS Cytoscape -->
+<script src="libs/cytoscape.min.js"></script>
+<script src="libs/dagre.min.js"></script>
+<script src="libs/cytoscape-dagre.js"></script>
+<script src="js/script.js"></script>
+</body>
+</html>
