@@ -105,6 +105,14 @@
 
         <div id="cy-container">
           <div id="cy"></div>
+          <!-- Painel de detalhes do nó (abre ao clicar no grafo) -->
+          <div id="job-detail-panel">
+            <div id="job-detail-header">
+              <span id="job-detail-title">Detalhes</span>
+              <button id="job-detail-close" onclick="_fluxoFecharPainel()" title="Fechar">&#10005;</button>
+            </div>
+            <div id="job-detail-body"></div>
+          </div>
           <div id="cy-overlay-btns">
             <button class="cy-btn" onclick="cyZoom(1.2)" title="Zoom in">+</button>
             <button class="cy-btn" onclick="cyZoom(0.8)" title="Zoom out">−</button>

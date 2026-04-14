@@ -228,6 +228,131 @@ header .subtitle { margin-left: auto; font-size: 11px; opacity: 0.7; }
   width: 100%;
   height: 100%;
 }
+
+/* ── Painel de detalhes do nó ────────────────────────────── */
+#job-detail-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 270px;
+  background: #fff;
+  border-right: 2px solid #d0d8ef;
+  box-shadow: 4px 0 18px rgba(40,60,120,0.13);
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+  transform: translateX(-100%);
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+  border-radius: 8px 0 0 8px;
+}
+#job-detail-panel.open {
+  transform: translateX(0);
+}
+#job-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 8px;
+  background: #2a4a9c;
+  color: #fff;
+  border-radius: 8px 0 0 0;
+  flex-shrink: 0;
+}
+#job-detail-title {
+  font-size: 13px;
+  font-weight: 800;
+  font-family: Consolas, monospace;
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+#job-detail-close {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.8);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 0 0 8px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+#job-detail-close:hover { color: #fff; }
+#job-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+.jdp-row {
+  margin-bottom: 10px;
+}
+.jdp-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #7a90c8;
+  margin-bottom: 3px;
+}
+.jdp-value {
+  font-size: 12px;
+  color: #1e2a45;
+  word-break: break-word;
+}
+.jdp-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+.jdp-badge.NORMAL  { background: #3a6fc8; }
+.jdp-badge.GERADOR { background: #d4910a; }
+.jdp-badge.GERADO  { background: #7e3fb0; }
+.jdp-sep {
+  border: none;
+  border-top: 1px solid #e8edf7;
+  margin: 10px 0;
+}
+.jdp-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #eef2fc;
+  border: 1px solid #c5d0ef;
+  color: #2a4a9c;
+  border-radius: 8px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  margin: 2px 2px 2px 0;
+  font-family: Consolas, monospace;
+  cursor: pointer;
+}
+.jdp-chip:hover { background: #d6e0f8; }
+.jdp-chip-none {
+  font-size: 11px;
+  color: #aaa;
+  font-style: italic;
+}
+.jdp-cal-day {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  font-size: 9px;
+  border-radius: 3px;
+  margin: 1px;
+  font-weight: 600;
+}
+.jdp-cal-day.run    { background: #1ab76d; color: #fff; }
+.jdp-cal-day.norun  { background: #e8edf7; color: #aaa; }
+.jdp-cal-day.we     { opacity: 0.6; }
+.jdp-cal-month-hdr  { font-size: 10px; font-weight: 700; color: #7a90c8; margin: 6px 0 3px; }
+
 .cy-overlay-btns,
 #cy-overlay-btns {
   position: absolute;

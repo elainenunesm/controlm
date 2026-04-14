@@ -1451,6 +1451,7 @@ function _fluxoRenderJobFlow(jid) {
   var container = document.getElementById('cy');
   if (!container) return;
   if (cy) { cy.destroy(); cy = null; }
+  _fluxoFecharPainel();
 
   // Coleta job e suas arestas de todos os grupos
   var centralJob = null;
@@ -1581,7 +1582,10 @@ function _fluxoRenderJobFlow(jid) {
   });
 
   cy.on('tap', 'node', function(evt) {
-    var id = evt.target.id();
+    var id   = evt.target.id();
+    var data = evt.target.data();
+    // Se clicar em nó vizinho, navega; se clicar no central, abre painel
+    _fluxoAbrirPainelJob(Object.assign({ id: id }, data));
     if (id !== jid) _fluxoSelecionarJobSidebar(id, null);
   });
   cy.fit(undefined, 30);
@@ -2041,20 +2045,147 @@ function renderFluxoFromParsed() {
 
 // Modal de detalhes do job (modo TXT)
 function _fluxoAbrirModal(data) {
-  document.getElementById('modalTitle').textContent = 'Job: ' + data.id;
-  var campos = [
-    ['ID / Nome'  , data.id],
-    ['Descrição'  , data.jobLabel || '-'],
-    ['Tipo'       , data.nodeType  || 'NORMAL'],
-    ['Grupo'      , data.grp       || '-'],
-    ['Nível'      , data.level     || '-'],
-    ['Calendário' , data.calendar  || '-'],
-    ['Gerado por' , data.generatedBy || '-']
-  ];
-  document.getElementById('modalTable').innerHTML = campos.map(function(r) {
-    return '<tr><td>' + r[0] + '</td><td>' + (r[1] || '-') + '</td></tr>';
-  }).join('');
-  document.getElementById('modalOverlay').classList.add('open');
+  _fluxoAbrirPainelJob(data);
+}
+
+// ── Painel lateral de detalhes do job ────────────────────
+function _fluxoAbrirPainelJob(data) {
+  var panel = document.getElementById('job-detail-panel');
+  var title = document.getElementById('job-detail-title');
+  var body  = document.getElementById('job-detail-body');
+  if (!panel || !body) return;
+
+  title.textContent = data.id || 'Job';
+  body.innerHTML = '';
+
+  function row(label, val) {
+    var d   = document.createElement('div');
+    d.className = 'jdp-row';
+    var lbl = document.createElement('div');
+    lbl.className = 'jdp-label';
+    lbl.textContent = label;
+    var v   = document.createElement('div');
+    v.className = 'jdp-value';
+    v.innerHTML = val || '\u2014';
+    d.appendChild(lbl);
+    d.appendChild(v);
+    return d;
+  }
+  function sep() {
+    var hr = document.createElement('hr');
+    hr.className = 'jdp-sep';
+    return hr;
+  }
+
+  // Tipo (badge colorido)
+  var badgeDiv = document.createElement('div');
+  badgeDiv.className = 'jdp-row';
+  var badgeLbl = document.createElement('div'); badgeLbl.className = 'jdp-label'; badgeLbl.textContent = 'Tipo';
+  var badge = document.createElement('span');
+  badge.className = 'jdp-badge ' + (data.nodeType || 'NORMAL');
+  badge.textContent = data.nodeType || 'NORMAL';
+  badgeDiv.appendChild(badgeLbl); badgeDiv.appendChild(badge);
+  body.appendChild(badgeDiv);
+
+  body.appendChild(row('Descrição', data.jobLabel));
+  body.appendChild(row('Grupo', data.grp));
+  body.appendChild(row('Nível', data.level !== undefined ? data.level : '\u2014'));
+  body.appendChild(row('Calendário', data.calendar && data.calendar !== '-' ? data.calendar : '\u2014'));
+  if (data.generatedBy) body.appendChild(row('Gerado por', data.generatedBy));
+
+  // ── Predecessores e Sucessores ──
+  if (_fluxoData) {
+    var allPreds = [], allSuccs = [];
+    Object.keys(_fluxoData).forEach(function(gn) {
+      (_fluxoData[gn].edges || []).forEach(function(e) {
+        if (e.to   === data.id) allPreds.push({ id: e.from, status: e.status });
+        if (e.from === data.id) allSuccs.push({ id: e.to,   status: e.status });
+      });
+    });
+
+    body.appendChild(sep());
+
+    // Predecessores
+    var predDiv = document.createElement('div'); predDiv.className = 'jdp-row';
+    var predLbl = document.createElement('div'); predLbl.className = 'jdp-label'; predLbl.textContent = '\u2190 Depende de (' + allPreds.length + ')';
+    predDiv.appendChild(predLbl);
+    if (allPreds.length === 0) {
+      var n = document.createElement('span'); n.className = 'jdp-chip-none'; n.textContent = 'início do fluxo';
+      predDiv.appendChild(n);
+    } else {
+      allPreds.forEach(function(p) {
+        var c = document.createElement('span'); c.className = 'jdp-chip';
+        c.textContent = p.id + (p.status ? ' ' + p.status : '');
+        c.title = 'Ir para ' + p.id;
+        c.onclick = (function(pid) { return function() { _fluxoSelecionarJobSidebar(pid, null); }; })(p.id);
+        predDiv.appendChild(c);
+      });
+    }
+    body.appendChild(predDiv);
+
+    // Sucessores
+    var succDiv = document.createElement('div'); succDiv.className = 'jdp-row';
+    var succLbl = document.createElement('div'); succLbl.className = 'jdp-label'; succLbl.textContent = '\u2192 Dispara (' + allSuccs.length + ')';
+    succDiv.appendChild(succLbl);
+    if (allSuccs.length === 0) {
+      var n2 = document.createElement('span'); n2.className = 'jdp-chip-none'; n2.textContent = 'fim do fluxo';
+      succDiv.appendChild(n2);
+    } else {
+      allSuccs.forEach(function(s) {
+        var c = document.createElement('span'); c.className = 'jdp-chip';
+        c.textContent = s.id + (s.status ? ' ' + s.status : '');
+        c.title = 'Ir para ' + s.id;
+        c.onclick = (function(sid) { return function() { _fluxoSelecionarJobSidebar(sid, null); }; })(s.id);
+        succDiv.appendChild(c);
+      });
+    }
+    body.appendChild(succDiv);
+  }
+
+  // ── Mini-calendário do job ──
+  if (_calData && _calData.jobs) {
+    var jup = (data.id || '').toUpperCase();
+    var jobCal = _calData.jobs[jup];
+    if (jobCal) {
+      body.appendChild(sep());
+      var calDiv = document.createElement('div'); calDiv.className = 'jdp-row';
+      var calLbl = document.createElement('div'); calLbl.className = 'jdp-label'; calLbl.textContent = '\uD83D\uDCC5 Calendário ' + (_calData.year || '');
+      calDiv.appendChild(calLbl);
+      var yr = _calData.year;
+      for (var m = 1; m <= 12; m++) {
+        var mKey  = 'M' + (m < 10 ? '0' : '') + m;
+        var dias  = jobCal[mKey];
+        if (!dias || !dias.length) continue;
+        var dInM  = new Date(yr, m, 0).getDate();
+        var fDow  = new Date(yr, m-1, 1).getDay();
+        var hasRun = dias.some(function(d) { return d; });
+        if (!hasRun) continue;
+        var mhdr = document.createElement('div'); mhdr.className = 'jdp-cal-month-hdr';
+        mhdr.textContent = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][m-1];
+        calDiv.appendChild(mhdr);
+        var row2 = document.createElement('div'); row2.style.cssText = 'display:flex;flex-wrap:wrap;';
+        for (var dd = 1; dd <= dInM; dd++) {
+          var dow  = (fDow + dd - 1) % 7;
+          var isWE = dow === 0 || dow === 6;
+          var exec = dias[dd-1];
+          var cell = document.createElement('span');
+          cell.className = 'jdp-cal-day ' + (exec ? 'run' : 'norun') + (isWE ? ' we' : '');
+          cell.textContent = dd;
+          cell.title = dd + '/' + m + (exec ? ' — EXECUTA' : '');
+          row2.appendChild(cell);
+        }
+        calDiv.appendChild(row2);
+      }
+      body.appendChild(calDiv);
+    }
+  }
+
+  panel.classList.add('open');
+}
+
+function _fluxoFecharPainel() {
+  var panel = document.getElementById('job-detail-panel');
+  if (panel) panel.classList.remove('open');
 }
 
 // Toggle mostrar/ocultar filhos de um nó GERADOR
