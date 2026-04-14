@@ -1064,23 +1064,35 @@ function fluxoOnFile(evt) {
 
 // ── Parser principal ─────────────────────────────────────
 // Suporta dois blocos do relatório Control-M:
-//   1) JOB FLOW:        LVL MEMBER DESCRIPTION TYP CALENDR ... [\]
-//                       ORIGEM-DESTINO-OK  (linhas de continuação)
-//   2) CROSS REFERENCE: CONDITION  ODATE TYPE OPT GROUP MEMBER
-//                       COND-OK  ODAT IN/OUT + GRUPO MEMBER
-// Regra de ouro (IN x OUT):
-//   ODAT IN  → job MEMBER espera condição (aresta: dono-da-condição → MEMBER)
-//   ODAT OUT → job MEMBER produz condição (aresta: MEMBER → quem faz IN)
+//
+//   1) JOB FLOW:
+//      Cabeçalho fixo:  LVL  MEMBER  DEPEND ON  DESCRIPTION
+//      Linhas de job:   NNN  JOBNM   JOBA-JOBB-OK     Descrição do job  [\]
+//      Continuação:          (vazio)  JOBC-JOBD-OK                       [\]
+//
+//   2) CROSS REFERENCE:
+//      Cabeçalho:  CONDITION  ODATE  TYPE  OPT  GROUP  MEMBER
+//      Linhas:     JOBA-JOBB-OK  ODAT  IN/OUT  [+/-]  GRUPO  MEMBER
+//
+// Regra IN x OUT no CROSS REFERENCE:
+//   ODAT IN  → MEMBER espera a condição  (aresta: produtor → MEMBER)
+//   ODAT OUT → MEMBER produz a condição  (aresta: MEMBER → consumidor)
 function _fluxoParse(src, filename) {
   var lines  = src.split(/\r?\n/);
   var result = {};           // { groupName: { jobs:{}, edges:[] } }
   var curGroup    = null;
   var curJob      = null;
-  var waitCont    = false;   // aguarda continuação após '\'
+  var waitCont    = false;   // aguarda linha de continuação (após '\')
   var inCrossRef  = false;   // estamos na seção CROSS REFERENCE
 
+  // Posições de coluna detectadas no cabeçalho "LVL MEMBER DEPEND ON DESCRIPTION"
+  // -1 = ainda não detectado neste grupo
+  var colMember = -1;
+  var colDepend = -1;
+  var colDesc   = -1;
+
   // Mapa de condições para resolver IN/OUT depois
-  // condMap[condKey] = { out: [{group,member}], in: [{group,member}] }
+  // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
 
   for (var i = 0; i < lines.length; i++) {
@@ -1091,45 +1103,35 @@ function _fluxoParse(src, filename) {
     // ── Detecta seção CROSS REFERENCE ─────────────────
     if (/CROSS\s+REFERENCE/i.test(line)) {
       inCrossRef = true;
-      curJob   = null;
-      waitCont = false;
+      curJob = null; waitCont = false;
       continue;
     }
 
     // ── Início de GROUP ────────────────────────────────
-    // "JOB FLOW REPORT - BY GROUP DIARIO GROUP"
-    // "PRODUCED BY CONTROL-M ... BY GROUP MENSAL GROUP"
     if (line.indexOf('BY GROUP') >= 0) {
       var gm = line.match(/BY\s+GROUP\s+([A-Z0-9_\-]+)\s+GROUP/i);
       if (gm) {
         curGroup   = gm[1].toUpperCase();
         inCrossRef = false;
+        colMember = colDepend = colDesc = -1;  // reset de colunas para novo grupo
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
-        curJob   = null;
-        waitCont = false;
+        curJob = null; waitCont = false;
       }
       continue;
     }
 
     // ── CROSS REFERENCE: processa linhas de condição ──
-    // Formato: COND-COND-OK   ODAT   IN/OUT   [+/-]   GRUPO   MEMBER
     if (inCrossRef) {
-      // Detecta cabeçalho — ignora
       if (/^\s*CONDITION\s+ODATE/i.test(raw)) continue;
-
-      // Linha de condição:
       // ex: "SSSS9405-SSSS9512-OK   ODAT   IN      DIARIO   SSSS9512"
-      // ex: "SSSS9405-SSSS9512-OK   ODAT   OUT  +  DIARIO   SSSS9405"
       var crRx = /([A-Z][A-Z0-9]{2,14})-([A-Z][A-Z0-9]{2,14})-(OK|CODES|STAT|\d{2})\s+\S+\s+(IN|OUT)\s+/i;
       var crm  = line.match(crRx);
       if (crm) {
         var condKey  = (crm[1] + '-' + crm[2] + '-' + crm[3]).toUpperCase();
         var inout    = crm[4].toUpperCase();
-        // Extrai grupo e member (últimas duas colunas não-vazias)
-        var cols     = line.trim().split(/\s+/);
+        var cols     = line.split(/\s+/);
         var crMember = cols[cols.length - 1].toUpperCase();
         var crGroup  = cols[cols.length - 2].toUpperCase();
-        // Ignora linhas sem member válido
         if (!/^[A-Z][A-Z0-9]{2,14}$/.test(crMember)) continue;
         if (!condMap[condKey]) condMap[condKey] = { out: [], inp: [] };
         if (inout === 'OUT') condMap[condKey].out.push({ group: crGroup, member: crMember });
@@ -1140,86 +1142,106 @@ function _fluxoParse(src, filename) {
 
     if (!curGroup) continue;
 
+    // ── Detecta cabeçalho "LVL  MEMBER  DEPEND ON  DESCRIPTION" ──
+    // Captura a posição exata de cada coluna para usar nas linhas seguintes
+    if (/^\s*LVL\s+MEMBER/i.test(raw)) {
+      var hup   = raw.toUpperCase();
+      colMember = hup.indexOf('MEMBER');
+      colDepend = hup.indexOf('DEPEND');
+      colDesc   = hup.indexOf('DESCRIPTION');
+      curJob = null; waitCont = false;
+      continue;
+    }
+
     // ── Linha de continuação (após '\') ───────────────
+    // Contém apenas mais condições na coluna DEPEND ON
     if (waitCont) {
-      _fluxoExtractDeps(raw, curJob, result[curGroup]);
+      var depArea = (colDepend >= 0)
+        ? raw.slice(colDepend, colDesc > colDepend ? colDesc : raw.length)
+        : raw;
+      _fluxoExtractDeps(depArea, curJob, result[curGroup]);
       waitCont = raw.trimEnd().slice(-1) === '\\';
       continue;
     }
 
-    // ── Pula cabeçalho de coluna ──────────────────────
-    if (/^\s*LVL\s+MEMBER/i.test(raw)) continue;
+    // A partir daqui: tenta identificar linha de job no JOB FLOW
+    // ─────────────────────────────────────────────────────────────
+    // Estratégia A: usa posições de coluna do cabeçalho (preferida)
+    if (colMember >= 0) {
+      // LVL: texto antes da coluna MEMBER
+      var lvlStr = raw.slice(0, colMember).trim();
+      var lvlNum = parseInt(lvlStr, 10);
+      if (isNaN(lvlNum)) continue;
 
-    // ── Linha de JOB (JOB FLOW) ───────────────────────
-    // Formato fixo: LVL MEMBER DESCRIPTION TYP CALENDR CMP DAYS [\]
-    // Exemplo:  1 SSSS9405 ALTERACAO GENERICA DE M WORKDAYS ALL \
-    // LVL = 1..N (número)
-    // MEMBER = job name (4 letras + 9 + 3 dígitos, ou PLAN...)
-    // DESCRIPTION = texto livre
-    // TYP = M (ou outro)
-    // CALENDR = nome do calendário
-    var jobRx = /^(\d{1,3})\s+([A-Z][A-Z0-9]{1,14})\s+(.*?)\s{2,}([A-Z])\s+([A-Z0-9_\-]+)/i;
-    var jm    = line.match(jobRx);
+      // MEMBER: coluna MEMBER até DEPEND ON (ou DESCRIPTION se não há DEPEND ON)
+      var memberEnd = colDepend > colMember ? colDepend
+                    : colDesc  > colMember ? colDesc
+                    : raw.length;
+      var member = raw.slice(colMember, memberEnd).trim().toUpperCase();
+      if (!member || !/^[A-Z][A-Z0-9]{1,29}$/.test(member)) continue;
 
-    // Fallback mais simples: LVL + MEMBER (pelo menos)
-    if (!jm) {
-      var jobRx2 = /^(\d{1,3})\s+([A-Z][A-Z0-9]{2,14})\s+(.*)/i;
-      var jm2    = line.match(jobRx2);
-      if (jm2) jm = [jm2[0], jm2[1], jm2[2], jm2[3].trim(), '-', '-'];
-    }
+      // DEPEND ON: de colDepend até colDesc (remove '\' do final)
+      var dependStr = '';
+      if (colDepend >= 0 && colDepend < raw.length) {
+        var depEnd = colDesc > colDepend ? colDesc : raw.length;
+        dependStr = raw.slice(colDepend, depEnd).replace(/\\\s*$/, '').trim();
+      }
 
-    if (jm) {
-      var lvl      = parseInt(jm[1], 10);
+      // DESCRIPTION: de colDesc até o fim
+      var desc = (colDesc >= 0 && colDesc < raw.length) ? raw.slice(colDesc).trim() : '';
+
+    } else {
+      // Estratégia B: regex simples  LVL MEMBER  (restante é DEPEND ON + DESCRIPTION)
+      var jrx = /^(\d{1,3})\s+([A-Z][A-Z0-9]{2,29})\s+(.*)/i;
+      var jm  = line.match(jrx);
+      if (!jm) continue;
+      var lvlNum   = parseInt(jm[1], 10);
       var member   = jm[2].toUpperCase();
-      var desc     = jm[3].replace(/\s{2,}.*$/, '').trim();  // para antes das colunas TYP/CALENDR
-      var calendar = (jm[5] || '-').toUpperCase();
-
-      // Classifica tipo do nó
-      var nodeType    = 'NORMAL';
-      var generatedBy = null;
-      var descUp      = desc.toUpperCase();
-
-      if (/^PLAN/i.test(member)) {
-        nodeType = 'GERADOR';
-      } else if (
-        descUp.indexOf('PLAN') >= 0 &&
-        (descUp.indexOf('GERADO') >= 0 || descUp.indexOf('CRIADO') >= 0 ||
-         descUp.indexOf('P/PLAN') >= 0 || descUp.indexOf('PELO PLAN') >= 0)
-      ) {
-        nodeType = 'GERADO';
-        var planM = desc.match(/PLAN\w*/i);
-        generatedBy = planM ? planM[0].toUpperCase() : null;
-      }
-
-      curJob = {
-        id         : member,
-        label      : desc,
-        group      : curGroup,
-        level      : lvl,
-        calendar   : calendar,
-        type       : nodeType,
-        generatedBy: generatedBy
-      };
-
-      // Não sobrescreve se job já existe (pode aparecer em dois grupos)
-      if (!result[curGroup].jobs[member]) {
-        result[curGroup].jobs[member] = curJob;
-      }
-
-      // Aresta de geração automática (PLAN → gerado)
-      if (generatedBy && nodeType === 'GERADO') {
-        _fluxoAddEdge(result[curGroup], generatedBy, member, 'gera', true, 'generation');
-      }
-
-      // Dependências na mesma linha ou aguarda continuação
-      if (raw.trimEnd().slice(-1) === '\\') {
-        waitCont = true;
-      } else {
-        _fluxoExtractDeps(raw, curJob, result[curGroup]);
-        waitCont = false;
-      }
-      continue;
+      // Separa condições (FROM-TO-OK) da descrição textual
+      var rest     = jm[3];
+      var depEnd2  = rest.search(/[^A-Z0-9\-\s\\]/i);
+      var dependStr = depEnd2 >= 0 ? rest.slice(0, depEnd2).trim() : rest.trim();
+      var desc      = depEnd2 >= 0 ? rest.slice(depEnd2).trim() : '';
     }
+
+    // ── Classifica tipo do nó ──────────────────────────
+    var nodeType    = 'NORMAL';
+    var generatedBy = null;
+    var descUp      = desc.toUpperCase();
+
+    if (/^PLAN/i.test(member)) {
+      nodeType = 'GERADOR';
+    } else if (
+      descUp.indexOf('PLAN') >= 0 &&
+      (descUp.indexOf('GERADO') >= 0 || descUp.indexOf('CRIADO') >= 0 ||
+       descUp.indexOf('P/PLAN') >= 0 || descUp.indexOf('PELO PLAN') >= 0)
+    ) {
+      nodeType = 'GERADO';
+      var planM = desc.match(/PLAN\w*/i);
+      generatedBy = planM ? planM[0].toUpperCase() : null;
+    }
+
+    curJob = {
+      id         : member,
+      label      : desc || member,
+      group      : curGroup,
+      level      : lvlNum,
+      calendar   : '-',
+      type       : nodeType,
+      generatedBy: generatedBy
+    };
+
+    if (!result[curGroup].jobs[member]) {
+      result[curGroup].jobs[member] = curJob;
+    }
+
+    if (generatedBy && nodeType === 'GERADO') {
+      _fluxoAddEdge(result[curGroup], generatedBy, member, 'gera', true, 'generation');
+    }
+
+    // Extrai dependências da string DEPEND ON e verifica continuação
+    if (dependStr) _fluxoExtractDeps(dependStr, curJob, result[curGroup]);
+    waitCont = raw.trimEnd().slice(-1) === '\\';
   }
 
   // ── Resolve arestas IN/OUT do CROSS REFERENCE ────────
