@@ -633,6 +633,74 @@ header .subtitle { margin-left: auto; font-size: 11px; opacity: 0.7; }
 .group-chip:hover { background: #ccd9f5; }
 .group-chip input[type="checkbox"] { accent-color: #3a6fc8; cursor: pointer; }
 
+/* ---------- Vista de Lista de Execução ---------- */
+.fluxo-lista { display: flex; flex-direction: column; gap: 8px; }
+.fluxo-lista-row {
+  background: #fff;
+  border: 1.5px solid #dde3ec;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 4px 14px;
+  align-items: start;
+  font-size: 12px;
+}
+.fluxo-lista-row.type-GERADOR { border-left: 4px solid #d4910a; }
+.fluxo-lista-row.type-GERADO  { border-left: 4px solid #7e3fb0; }
+.fluxo-lista-row.type-NORMAL  { border-left: 4px solid #3a6fc8; }
+.fljob-name {
+  font-weight: 800;
+  font-size: 13px;
+  color: #222;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.fljob-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  width: fit-content;
+}
+.badge-NORMAL  { background: #3a6fc8; }
+.badge-GERADOR { background: #d4910a; }
+.badge-GERADO  { background: #7e3fb0; }
+.fljob-desc { color: #555; margin-bottom: 4px; grid-column: 2; }
+.fljob-relations { display: flex; flex-direction: column; gap: 3px; grid-column: 2; }
+.fljob-dep, .fljob-next {
+  display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+  font-size: 11px;
+}
+.fljob-dep-label, .fljob-next-label {
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 75px;
+}
+.fljob-dep-label  { color: #888; }
+.fljob-next-label { color: #3a6fc8; }
+.fljob-chip {
+  background: #eef2fc; border: 1px solid #c5d0ea; border-radius: 4px;
+  padding: 1px 7px; color: #2a50a8; font-weight: 700; font-size: 11px;
+  cursor: pointer;
+}
+.fljob-chip:hover { background: #d6e0f8; }
+.fljob-none { color: #aaa; font-style: italic; }
+.fljob-seq  { font-size: 10px; color: #aaa; font-weight: 700; min-width: 24px; }
+
+/* Cabeçalho da lista por grupo */
+.fluxo-lista-group-header {
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 1px; color: #3a6fc8; margin: 14px 0 4px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid #dde3ec;
+}
+
 /* ---------- Legenda visual do fluxo TXT ---------- */
 .fluxo-legend {
   display: flex;

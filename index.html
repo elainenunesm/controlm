@@ -84,6 +84,7 @@
           </button>
           <span id="fluxoFileLabel"></span>
           <button id="fluxoPlanBtn" class="btn btn-secondary" onclick="fluxoTogglePlan()" style="display:none">&#8856; Ocultar PLAN</button>
+          <button id="fluxoListaBtn" class="btn btn-secondary" onclick="fluxoToggleView()" style="display:none">&#128203; Ver Lista</button>
           <button id="fluxoLimparBtn" class="btn btn-secondary" onclick="fluxoLimpar()" style="display:none">&#10005; Limpar Fluxo</button>
         </div>
         <!-- Filtro de grupos (preenchido via JS após import) -->
@@ -107,6 +108,9 @@
             <button class="cy-btn" onclick="cyFit()" title="Ajustar">⊡</button>
           </div>
         </div>
+
+        <!-- Lista de execução (alternativa ao grafo) -->
+        <div id="fluxoListaView" style="display:none;overflow-y:auto;flex:1;padding:14px 18px;"></div>
 
         <div class="action-bar">
           <button class="btn btn-secondary" onclick="mostrarTab('impacto', document.querySelectorAll('.tab')[2])">
