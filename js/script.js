@@ -2693,15 +2693,22 @@ function _fluxoParse(src, filename) {
   });
 
   // ── Aplica arestas da seção PREREQUISITE CONDITIONS ─────────────────
-  // Só cria aresta se o consumidor (ce.to) JÁ EXISTE no JOB FLOW → evita nós duplicados.
-  // Para o produtor (ce.from), cria nó fantasma apenas se necessário.
+  // Cria aresta FROM→TO para cada par coletado.
+  // Se um dos jobs não existir no result local (pode estar só em _fluxoData de outro arquivo),
+  // cria o nó no result para que a aresta seja registrada.
+  // Duplicatas de nós são evitadas pelo check em result[g].jobs e em renderFluxoFromParsed (addedNodes).
   Object.keys(simpleCondEdges).forEach(function(g) {
     if (!result[g]) return;
     simpleCondEdges[g].forEach(function(ce) {
-      if (!result[g].jobs[ce.to]) return;   // consumidor deve estar no JOB FLOW
       if (!result[g].jobs[ce.from]) {
         result[g].jobs[ce.from] = {
           id: ce.from, label: ce.from, group: g, level: 0,
+          calendar: '-', type: 'NORMAL', generatedBy: null
+        };
+      }
+      if (!result[g].jobs[ce.to]) {
+        result[g].jobs[ce.to] = {
+          id: ce.to, label: ce.to, group: g, level: 0,
           calendar: '-', type: 'NORMAL', generatedBy: null
         };
       }
@@ -2720,7 +2727,13 @@ function _fluxoParse(src, filename) {
     if (_fluxoData[g]) {
       // Merge jobs (job existente não é sobrescrito)
       Object.keys(result[g].jobs).forEach(function(jid) {
-        if (!_fluxoData[g].jobs[jid]) _fluxoData[g].jobs[jid] = result[g].jobs[jid];
+        var existing = _fluxoData[g].jobs[jid];
+        var incoming = result[g].jobs[jid];
+        // Job real (label != id ou level > 0) substitui fantasma; caso contrário não sobrescreve
+        if (!existing || (existing.label === existing.id && existing.level === 0 &&
+            (incoming.label !== incoming.id || incoming.level > 0))) {
+          _fluxoData[g].jobs[jid] = incoming;
+        }
       });
       // Merge edges sem duplicar
       result[g].edges.forEach(function(e) {
