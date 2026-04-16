@@ -2490,20 +2490,27 @@ function _fluxoParse(src, filename) {
     var line = raw.trim();
     if (!line) continue;
 
-    // ── Detecta seção PREREQUISITE CONDITIONS ──────────
-    // A linha de cabeçalho contém "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS"
-    // e deve ser testada ANTES do check genérico de CROSS REFERENCE
-    if (/PREREQUISITE\s+CONDITIONS/i.test(line)) {
+    // ── Detecta linha "CONDITION MEMBERNAME" ──────────
+    // Estrutura real do relatório:
+    //   " CONDITION           SSSSCXX2"  ← MEMBER (consumidor) na MESMA linha
+    //   " ─────────────────────────────"  ← separador
+    //   " SSSSCXX1-SSSSCXX1"             ← nome da condição (produtor é o 1º token)
+    // Cobre também "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS" (title da seção)
+    if (!inCrossRef && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
+      // Tenta extrair MEMBER (consumidor) da mesma linha: primeiro token após "CONDITION"
+      var cmHdr = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
+      curCondMember = cmHdr ? cmHdr[1].toUpperCase() : null;
       inCondition = true;
       inCrossRef  = false;
       curJob = null; waitCont = false;
       continue;
     }
 
-    // ── Detecta seção CROSS REFERENCE ─────────────────
-    if (/CROSS\s+REFERENCE/i.test(line)) {
-      inCrossRef  = true;
-      inCondition = false;
+    // ── Detecta seção CROSS REFERENCE (IN/OUT com ODATE) ──
+    if (/CROSS\s+REFERENCE/i.test(line) && !/PREREQUISITE/i.test(line)) {
+      inCrossRef    = true;
+      inCondition   = false;
+      curCondMember = null;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2512,9 +2519,10 @@ function _fluxoParse(src, filename) {
     if (line.indexOf('BY GROUP') >= 0) {
       var gm = line.match(/BY\s+GROUP\s+([A-Z0-9_\-]+)\s+GROUP/i);
       if (gm) {
-        curGroup    = gm[1].toUpperCase();
-        inCrossRef  = false;
-        inCondition = false;
+        curGroup      = gm[1].toUpperCase();
+        inCrossRef    = false;
+        inCondition   = false;
+        curCondMember = null;
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
@@ -2522,21 +2530,34 @@ function _fluxoParse(src, filename) {
       continue;
     }
 
-    // ── PREREQUISITE CONDITIONS: extrai pares FROM→TO por colunas fixas ──
-    // Formato: col 2/size 8 = produtor (slice 1,9), col 10 = '-', col 11/size 8 = consumidor (slice 10,18)
-    // Ignora linhas de cabeçalho ("CONDITION", "----") e só processa se tiver '-' na col 10
+    // ── CONDITION: processa linhas de dados ──────────
+    // A linha de dados tem o nome da condição: "PRODUTOR-...-STATUS" ou "PRODUTOR-CONSUMIDOR"
+    // O produtor é o 1º token antes do primeiro '-'
+    // O consumidor é curCondMember (extraído do cabeçalho CONDITION) ou o 2º token
     if (inCondition) {
-      if (/^[-\s]+$/.test(line)) continue;        // separador ────
-      if (/^\s*CONDITION\s*$/i.test(line)) continue; // cabeçalho "CONDITION"
-      var csep = raw.length > 9 ? raw[9] : '';
-      if (csep === '-' && curGroup) {
-        var cfrom = raw.slice(1, 9).trim().toUpperCase();
-        var cto   = raw.slice(10, 18).trim().toUpperCase();
-        if (cfrom && cto &&
-            /^[A-Z][A-Z0-9]{1,29}$/.test(cfrom) &&
-            /^[A-Z][A-Z0-9]{1,29}$/.test(cto)) {
+      if (/^[-\s]+$/.test(line)) continue;  // separador ───────
+      // Nova subseção CONDITION: nova linha com CONDITION + MEMBER
+      if (/^\s*CONDITION\s+[A-Z]/i.test(line)) {
+        var cmHdr2 = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
+        curCondMember = cmHdr2 ? cmHdr2[1].toUpperCase() : null;
+        continue;
+      }
+      // Extrai produtor: primeiro token alfanumérico da linha
+      var condDataRx = /([A-Z][A-Z0-9]{1,29})/i;
+      var condDataM  = line.match(condDataRx);
+      if (condDataM && curGroup) {
+        var cprod = condDataM[1].toUpperCase();
+        // Consumidor: curCondMember se disponível, senão segundo token após '-'
+        var ccons = curCondMember;
+        if (!ccons) {
+          var condParts = line.match(/[A-Z][A-Z0-9]{1,29}-([A-Z][A-Z0-9]{1,29})/i);
+          ccons = condParts ? condParts[1].toUpperCase() : null;
+        }
+        if (ccons && cprod !== ccons &&
+            /^[A-Z][A-Z0-9]{1,29}$/.test(cprod) &&
+            /^[A-Z][A-Z0-9]{1,29}$/.test(ccons)) {
           if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
-          simpleCondEdges[curGroup].push({ from: cfrom, to: cto });
+          simpleCondEdges[curGroup].push({ from: cprod, to: ccons });
         }
       }
       continue;
