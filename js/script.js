@@ -2590,6 +2590,8 @@ function _fluxoParse(src, filename) {
 
     // ── Linha de cabeçalho "LVL MEMBER DEPEND ON..." → ignorar (colunas são fixas) ──
     if (/^\s*LVL\s+MEMBER/i.test(raw)) {
+      inCondition   = false;   // garante saída da seção CONDITION ao entrar no JOB FLOW
+      curCondMember = null;
       curJob = null; waitCont = false;
       continue;
     }
