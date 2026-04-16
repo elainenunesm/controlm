@@ -2487,6 +2487,10 @@ function _fluxoParse(src, filename) {
   // Chave: 'GROUP|MEMBER'
   var hasDepOn = {};
 
+  // Seção CONDITION inline (sub-seção de job no JOB FLOW)
+  var inCondSection = false;
+  var condForJob    = null;  // job que é consumidor desta condição
+
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
     var line = raw.trim();
@@ -2495,6 +2499,7 @@ function _fluxoParse(src, filename) {
     // ── Detecta seção CROSS REFERENCE ─────────────────
     if (/CROSS\s+REFERENCE/i.test(line)) {
       inCrossRef = true;
+      inCondSection = false; condForJob = null;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2505,6 +2510,7 @@ function _fluxoParse(src, filename) {
       if (gm) {
         curGroup   = gm[1].toUpperCase();
         inCrossRef = false;
+        inCondSection = false; condForJob = null;
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
@@ -2536,6 +2542,7 @@ function _fluxoParse(src, filename) {
 
     // ── Linha de cabeçalho "LVL MEMBER DEPEND ON..." → ignorar (colunas são fixas) ──
     if (/^\s*LVL\s+MEMBER/i.test(raw)) {
+      inCondSection = false; condForJob = null;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2547,6 +2554,48 @@ function _fluxoParse(src, filename) {
       _fluxoExtractDeps(depArea, curJob, result[curGroup]);
       waitCont = raw.trimEnd().slice(-1) === '\\';
       continue;
+    }
+
+    // ── Detecta entrada da seção CONDITION (sub-seção de job) ─────
+    // Formato: linha com só "CONDITION", seguida de linha de traços, depois dados
+    if (!inCondSection && /^\s*CONDITION\s*$/i.test(raw)) {
+      // Look-ahead: confirma que próxima linha não-vazia é traços
+      var nxt = '';
+      for (var ni = i + 1; ni < lines.length; ni++) {
+        if (lines[ni].trim()) { nxt = lines[ni].trim(); break; }
+      }
+      if (nxt.length > 3 && /^[-─]+$/.test(nxt)) {
+        inCondSection = true;
+        condForJob = curJob;  // job atual = consumidor desta condição
+      }
+      continue;
+    }
+
+    // ── Processa linhas dentro da seção CONDITION ──────────────────
+    if (inCondSection) {
+      // Sai da seção se encontrar LVL numérico (início de próximo job)
+      var lvlChkStr = raw.slice(0, colMember).trim();
+      if (/^\d+$/.test(lvlChkStr)) {
+        inCondSection = false;
+        condForJob = null;
+        // Não faz continue — deixa processar como linha de job normal
+      } else {
+        // Separador de traços → ignora
+        if (/^[-─]+$/.test(line)) { continue; }
+        // Dado: PRODUTOR-CONSUMIDOR ou PRODUTOR-CONSUMIDOR-STATUS
+        var cdRx = /([A-Z][A-Z0-9]{2,13})-([A-Z][A-Z0-9]{2,13})(?:-(OK|CODES|STAT|\d{2}))?/i;
+        var cdm = line.match(cdRx);
+        if (cdm && condForJob && !hasDepOn[curGroup + '|' + condForJob.id]) {
+          var cdProd = cdm[1].toUpperCase();
+          var cdStat = (cdm[3] || 'OK').toUpperCase();
+          if (!result[curGroup].jobs[cdProd]) {
+            result[curGroup].jobs[cdProd] = { id: cdProd, label: cdProd, group: curGroup,
+              level: 0, calendar: '-', type: 'NORMAL', generatedBy: null };
+          }
+          _fluxoAddEdge(result[curGroup], cdProd, condForJob.id, cdStat, false, 'dependency');
+        }
+        continue;
+      }
     }
 
     // A partir daqui: tenta identificar linha de job no JOB FLOW
