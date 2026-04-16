@@ -3100,6 +3100,24 @@ function _fluxoRenderJobFlow(jid) {
   cy.on('tap', 'node', function(evt) {
     var id   = evt.target.id();
     var data = evt.target.data();
+    // Enriquece com dados completos do job real (grupo, nível, etc.)
+    if (_fluxoData) {
+      Object.keys(_fluxoData).some(function(gn) {
+        var job = _fluxoData[gn].jobs[id];
+        if (job) {
+          data = Object.assign({}, data, {
+            id        : id,
+            nodeType  : job.type,
+            jobLabel  : job.label || id,
+            grp       : job.group || gn,
+            level     : job.level,
+            calendar  : job.calendar,
+            generatedBy: job.generatedBy
+          });
+          return true;
+        }
+      });
+    }
     // Se clicar em nó vizinho, navega; se clicar no central, abre painel
     _fluxoAbrirPainelJob(Object.assign({ id: id }, data));
     if (id !== jid) _fluxoSelecionarJobSidebar(id, null);
@@ -3570,6 +3588,24 @@ function _fluxoAbrirPainelJob(data) {
   var title = document.getElementById('job-detail-title');
   var body  = document.getElementById('job-detail-body');
   if (!panel || !body) return;
+
+  // Enriquece com dados completos do _fluxoData (grupo, nível, descrição real, etc.)
+  if (_fluxoData && data.id) {
+    Object.keys(_fluxoData).some(function(gn) {
+      var job = _fluxoData[gn].jobs[data.id];
+      if (job) {
+        data = Object.assign({}, data, {
+          nodeType   : data.nodeType  || job.type,
+          jobLabel   : (job.label && job.label !== data.id) ? job.label : (data.jobLabel || job.label || data.id),
+          grp        : data.grp       || job.group || gn,
+          level      : data.level     !== undefined ? data.level : job.level,
+          calendar   : data.calendar  || job.calendar,
+          generatedBy: data.generatedBy || job.generatedBy
+        });
+        return true;
+      }
+    });
+  }
 
   title.textContent = data.id || 'Job';
   body.innerHTML = '';
