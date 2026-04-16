@@ -2471,6 +2471,7 @@ function _fluxoParse(src, filename) {
   var curJob      = null;
   var waitCont    = false;   // aguarda linha de continuação (após '\')
   var inCrossRef  = false;   // estamos na seção CROSS REFERENCE
+  var inCondition = false;   // estamos na seção PREREQUISITE CONDITIONS
 
   // Posições de coluna fixas (1-indexed: member=col7/size8, depend=col16/size8, jobname=col25/size28)
   // Convertidas para 0-indexed (JavaScript slice)
@@ -2481,15 +2482,28 @@ function _fluxoParse(src, filename) {
   // Mapa de condições para resolver IN/OUT depois
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
+  // Pares FROM→TO coletados da seção PREREQUISITE CONDITIONS
+  var simpleCondEdges = {};
 
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
     var line = raw.trim();
     if (!line) continue;
 
+    // ── Detecta seção PREREQUISITE CONDITIONS ──────────
+    // A linha de cabeçalho contém "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS"
+    // e deve ser testada ANTES do check genérico de CROSS REFERENCE
+    if (/PREREQUISITE\s+CONDITIONS/i.test(line)) {
+      inCondition = true;
+      inCrossRef  = false;
+      curJob = null; waitCont = false;
+      continue;
+    }
+
     // ── Detecta seção CROSS REFERENCE ─────────────────
     if (/CROSS\s+REFERENCE/i.test(line)) {
-      inCrossRef = true;
+      inCrossRef  = true;
+      inCondition = false;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2498,11 +2512,32 @@ function _fluxoParse(src, filename) {
     if (line.indexOf('BY GROUP') >= 0) {
       var gm = line.match(/BY\s+GROUP\s+([A-Z0-9_\-]+)\s+GROUP/i);
       if (gm) {
-        curGroup   = gm[1].toUpperCase();
-        inCrossRef = false;
+        curGroup    = gm[1].toUpperCase();
+        inCrossRef  = false;
+        inCondition = false;
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
+      }
+      continue;
+    }
+
+    // ── PREREQUISITE CONDITIONS: extrai pares FROM→TO por colunas fixas ──
+    // Formato: col 2/size 8 = produtor (slice 1,9), col 10 = '-', col 11/size 8 = consumidor (slice 10,18)
+    // Ignora linhas de cabeçalho ("CONDITION", "----") e só processa se tiver '-' na col 10
+    if (inCondition) {
+      if (/^[-\s]+$/.test(line)) continue;        // separador ────
+      if (/^\s*CONDITION\s*$/i.test(line)) continue; // cabeçalho "CONDITION"
+      var csep = raw.length > 9 ? raw[9] : '';
+      if (csep === '-' && curGroup) {
+        var cfrom = raw.slice(1, 9).trim().toUpperCase();
+        var cto   = raw.slice(10, 18).trim().toUpperCase();
+        if (cfrom && cto &&
+            /^[A-Z][A-Z0-9]{1,29}$/.test(cfrom) &&
+            /^[A-Z][A-Z0-9]{1,29}$/.test(cto)) {
+          if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
+          simpleCondEdges[curGroup].push({ from: cfrom, to: cto });
+        }
       }
       continue;
     }
@@ -2655,6 +2690,23 @@ function _fluxoParse(src, filename) {
         _fluxoAddEdge(tg, extFrom, consumer.member, parts[2] || 'OK', false, 'dependency');
       });
     }
+  });
+
+  // ── Aplica arestas da seção PREREQUISITE CONDITIONS ─────────────────
+  // Só cria aresta se o consumidor (ce.to) JÁ EXISTE no JOB FLOW → evita nós duplicados.
+  // Para o produtor (ce.from), cria nó fantasma apenas se necessário.
+  Object.keys(simpleCondEdges).forEach(function(g) {
+    if (!result[g]) return;
+    simpleCondEdges[g].forEach(function(ce) {
+      if (!result[g].jobs[ce.to]) return;   // consumidor deve estar no JOB FLOW
+      if (!result[g].jobs[ce.from]) {
+        result[g].jobs[ce.from] = {
+          id: ce.from, label: ce.from, group: g, level: 0,
+          calendar: '-', type: 'NORMAL', generatedBy: null
+        };
+      }
+      _fluxoAddEdge(result[g], ce.from, ce.to, 'OK', false, 'dependency');
+    });
   });
 
   if (Object.keys(result).length === 0) {
