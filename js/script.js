@@ -2704,21 +2704,23 @@ function fluxoImportar() {
 }
 
 function fluxoOnFile(evt) {
-  var file = evt.target.files && evt.target.files[0];
-  if (!file) return;
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    var src = e.target.result;
-    var bad = (src.match(/\ufffd/g) || []).length;
-    if (bad > src.length * 0.05) {
-      var r2 = new FileReader();
-      r2.onload = function(e2) { _fluxoParse(e2.target.result, file.name); };
-      r2.readAsText(file, 'windows-1252');
-    } else {
-      _fluxoParse(src, file.name);
-    }
-  };
-  reader.readAsText(file, 'UTF-8');
+  var files = evt.target.files;
+  if (!files || !files.length) return;
+  Array.prototype.forEach.call(files, function(file) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var src = e.target.result;
+      var bad = (src.match(/\ufffd/g) || []).length;
+      if (bad > src.length * 0.05) {
+        var r2 = new FileReader();
+        r2.onload = function(e2) { _fluxoParse(e2.target.result, file.name); };
+        r2.readAsText(file, 'windows-1252');
+      } else {
+        _fluxoParse(src, file.name);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
   evt.target.value = '';
 }
 
