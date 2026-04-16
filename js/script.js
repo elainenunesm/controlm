@@ -2544,16 +2544,21 @@ function _fluxoParse(src, filename) {
 
     // ── CONDITION simples: extrai pares FROM → TO pelo layout fixo ──────
     if (inCondition) {
-      if (/^[-\s]+$/.test(line)) continue;  // linha separadora de traços
-      var cfrom = raw.length > 8  ? raw.slice(1, 9).trim().toUpperCase()  : '';
-      var csep  = raw.length > 9  ? raw[9]                                : '';
-      var cto   = raw.length > 17 ? raw.slice(10, 18).trim().toUpperCase() : '';
-      if (cfrom && csep === '-' && cto &&
-          /^[A-Z][A-Z0-9]{1,29}$/.test(cfrom) && /^[A-Z][A-Z0-9]{1,29}$/.test(cto) && curGroup) {
-        if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
-        simpleCondEdges[curGroup].push({ from: cfrom, to: cto });
+      // Se a linha começa com um número (LVL), é um job do JOB FLOW → sai da seção CONDITION
+      var lvlChkCond = raw.slice(0, colMember).trim();
+      if (/^\d+$/.test(lvlChkCond)) { inCondition = false; }
+      else {
+        if (/^[-\s]+$/.test(line)) continue;  // linha separadora de traços
+        var cfrom = raw.length > 8  ? raw.slice(1, 9).trim().toUpperCase()  : '';
+        var csep  = raw.length > 9  ? raw[9]                                : '';
+        var cto   = raw.length > 17 ? raw.slice(10, 18).trim().toUpperCase() : '';
+        if (cfrom && csep === '-' && cto &&
+            /^[A-Z][A-Z0-9]{1,29}$/.test(cfrom) && /^[A-Z][A-Z0-9]{1,29}$/.test(cto) && curGroup) {
+          if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
+          simpleCondEdges[curGroup].push({ from: cfrom, to: cto });
+        }
+        continue;
       }
-      continue;
     }
 
     // ── CROSS REFERENCE: processa linhas de condição ──
