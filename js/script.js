@@ -1596,6 +1596,7 @@ function renderImpacto(nome) {
     tbl.innerHTML = '<thead><tr>' +
       '<th>Job</th>' +
       '<th>Papel</th>' +
+      '<th>Descrição</th>' +
       '<th>Exec/Ano</th>' +
       '<th>Freq.</th>' +
       '<th>Próximas Execuções</th>' +
@@ -1621,10 +1622,19 @@ function renderImpacto(nome) {
         else                              { riscoCls = 'badge-risco-baixo'; riscoTxt = '🟢 Baixo'; }
       }
 
+      var jobDesc = '';
+      if (_fluxoData) {
+        Object.keys(_fluxoData).some(function(gn) {
+          var j = _fluxoData[gn].jobs[jid] || _fluxoData[gn].jobs[jid.toUpperCase()];
+          if (j && j.label && j.label !== jid) { jobDesc = j.label; return true; }
+        });
+      }
+
       var tr = document.createElement('tr');
       tr.innerHTML =
         '<td style="font-weight:700;white-space:nowrap;">' + jid + '</td>' +
         '<td style="white-space:nowrap;">' + papel + '</td>' +
+        '<td style="font-size:11px;color:#555;">' + jobDesc + '</td>' +
         '<td style="text-align:center;">' + execAno + '</td>' +
         '<td style="white-space:nowrap;">' + freq + '</td>' +
         '<td style="font-size:10px;">' + proximas + '</td>' +
@@ -1664,7 +1674,7 @@ function renderImpacto(nome) {
 function exportarImpactoCSV(jobId, todosJobs) {
   var yr = _calData ? _calData.year : '';
   var linhas = [
-    ['"Job"', '"Papel"', '"Exec/Ano"', '"Frequência"', '"Dias Úteis"', '"Fins Semana"', '"Meses Ativos"', '"Próximas 5 Execuções"', '"Risco"']
+    ['"Job"', '"Papel"', '"Descrição"', '"Exec/Ano"', '"Frequência"', '"Dias Úteis"', '"Fins Semana"', '"Meses Ativos"', '"Próximas 5 Execuções"', '"Risco"']
   ];
   var nomeUp = jobId.toUpperCase();
   var cadeia = _impactoCadeia(nomeUp);
@@ -1673,6 +1683,13 @@ function exportarImpactoCSV(jobId, todosJobs) {
   todosJobs.forEach(function(jid) {
     var papel = jid === nomeUp ? 'Raiz' : (upstream.indexOf(jid) >= 0 ? 'Predecessor' : 'Dependente');
     var execAno = '', freq = '', diasUteis = '', fds = '', mesesAt = '', proximas = '', risco = '';
+    var jobDesc = '';
+    if (_fluxoData) {
+      Object.keys(_fluxoData).some(function(gn) {
+        var j = _fluxoData[gn].jobs[jid] || _fluxoData[gn].jobs[jid.toUpperCase()];
+        if (j && j.label && j.label !== jid) { jobDesc = j.label; return true; }
+      });
+    }
 
     if (_calData) {
       var jdCal = _calData.jobs[jid] || _calData.jobs[jid.toUpperCase()];
@@ -1692,6 +1709,7 @@ function exportarImpactoCSV(jobId, todosJobs) {
     linhas.push([
       '"' + jid + '"',
       '"' + papel + '"',
+      '"' + jobDesc.replace(/"/g, "'") + '"',
       '"' + execAno + '"',
       '"' + freq + '"',
       '"' + diasUteis + '"',
