@@ -804,161 +804,197 @@ function _fluxoCaminhoCompleto(jobId) {
 // IMPACTO — renderiza a página N do grafo paginado
 // ============================================================
 // ============================================================
-// FLUXO IMPACTO — swim-lane SVG organizado
-// lanes: Antecessores | Analisado | Dependentes
-// colunas: níveis topológicos (N0, N1, N2 ...)
+// FLUXO IMPACTO — swim-lane com fluxo horizontal e quebra de linha
+// Nodes fluem →→→ dentro de cada lane, quebrando para a linha
+// seguinte com seta de continuação (como leitura de texto).
 // ============================================================
 function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
   // ── Constantes de layout ──
-  var LANE_LBL_W = 100;
-  var NODE_W     = 118;
-  var NODE_H     = 34;
-  var H_GAP      = 56;
-  var V_GAP      = 10;
-  var LANE_PAD   = 14;
-  var COL_STEP   = NODE_W + H_GAP;
-  var HEADER_H   = 22;
-  var numLevels  = fluxoPath.length;
+  var NODE_W    = 128;
+  var NODE_H    = 36;
+  var H_GAP     = 38;     // gap horizontal entre nodes
+  var V_GAP     = 54;     // gap vertical entre linhas dentro da lane (para seta)
+  var LANE_LBL  = 86;     // largura do rótulo da lane
+  var LANE_PAD  = 12;     // padding interno top/bottom da lane
+  var PER_ROW   = 6;      // máx nodes por linha
+  var NODE_STEP = NODE_W + H_GAP;
 
-  // ── Distribuir nodes por lane × nível ──
-  // lane 0 = upstream, 1 = selected, 2 = downstream
-  var laneNodes = [[], [], []];
-  for (var l0 = 0; l0 < 3; l0++)
-    for (var li0 = 0; li0 < numLevels; li0++) laneNodes[l0].push([]);
-  fluxoPath.forEach(function(lv, li) {
+  // ── 1. Coletar nodes por lane em ordem de nível ──
+  var laneSeqs = [[], [], []]; // 0=upstream 1=selected 2=downstream
+  var nodeInfo = {};
+  fluxoPath.forEach(function(lv) {
     lv.jobs.forEach(function(j) {
-      var lane = j.role === 'upstream' ? 0 : j.role === 'selected' ? 1 : 2;
-      laneNodes[lane][li].push(j.id);
+      var ln = j.role === 'upstream' ? 0 : j.role === 'selected' ? 1 : 2;
+      laneSeqs[ln].push(j.id);
+      nodeInfo[j.id] = { role: j.role, lane: ln, lvl: lv.nivel };
     });
   });
 
-  // ── Altura de cada lane ──
-  function maxInLane(l) {
-    var m = 0;
-    laneNodes[l].forEach(function(a) { m = Math.max(m, a.length); });
-    return m;
+  // ── 2. Dimensões de cada lane ──
+  function laneRowCount(cnt) { return cnt === 0 ? 0 : Math.ceil(cnt / PER_ROW); }
+  function laneHeight(cnt) {
+    if (!cnt) return 0;
+    var rows = laneRowCount(cnt);
+    return LANE_PAD * 2 + rows * NODE_H + (rows - 1) * V_GAP;
   }
-  function laneH(m) {
-    if (m === 0) return 0;
-    return m * NODE_H + (m - 1) * V_GAP + LANE_PAD * 2;
-  }
-  var lMax = [maxInLane(0), maxInLane(1), maxInLane(2)];
-  var lH   = [laneH(lMax[0]), laneH(lMax[1]), laneH(lMax[2])];
-  var lOff = [HEADER_H, HEADER_H + lH[0], HEADER_H + lH[0] + lH[1]];
-  var totalH = HEADER_H + lH[0] + lH[1] + lH[2];
-  var totalW = LANE_LBL_W + numLevels * COL_STEP - H_GAP + 48;
+  var lH  = [0, 1, 2].map(function(l) { return laneHeight(laneSeqs[l].length); });
+  var lOff = [0, lH[0], lH[0] + lH[1]];
+  var totalH = lH[0] + lH[1] + lH[2];
 
-  // ── Mapa de posições: jobId -> {x,y,cx,cy,lane} ──
+  var maxColsUsed = 0;
+  laneSeqs.forEach(function(s) { maxColsUsed = Math.max(maxColsUsed, Math.min(s.length, PER_ROW)); });
+  var innerW = LANE_LBL + maxColsUsed * NODE_STEP - H_GAP + 56;
+
+  // ── 3. Posições ──
   var posMap = {};
-  for (var lane = 0; lane < 3; lane++) {
-    if (lH[lane] === 0) continue;
-    for (var li2 = 0; li2 < numLevels; li2++) {
-      var arr = laneNodes[lane][li2];
-      if (!arr.length) continue;
-      var colH = arr.length * NODE_H + (arr.length - 1) * V_GAP;
-      var startY = lOff[lane] + LANE_PAD + (lH[lane] - LANE_PAD * 2 - colH) / 2;
-      arr.forEach(function(jid, ni) {
-        var x = LANE_LBL_W + li2 * COL_STEP;
-        var y = startY + ni * (NODE_H + V_GAP);
-        posMap[jid] = { x: x, y: y, cx: x + NODE_W / 2, cy: y + NODE_H / 2, lane: lane };
-      });
-    }
-  }
-
-  // ── Arestas internas ──
-  var subEdges = [], edgeSeen = {};
-  Object.keys(_fluxoData).forEach(function(gn) {
-    (_fluxoData[gn].edges || []).forEach(function(e) {
-      var f = e.from.toUpperCase(), t = e.to.toUpperCase();
-      var k = f + '\u2192' + t;
-      if (posMap[f] && posMap[t] && !edgeSeen[k]) {
-        edgeSeen[k] = true;
-        subEdges.push({ from: f, to: t, status: e.status, edgeType: e.edgeType });
-      }
+  laneSeqs.forEach(function(seq, ln) {
+    seq.forEach(function(jid, idx) {
+      var row = Math.floor(idx / PER_ROW);
+      var col = idx % PER_ROW;
+      var x   = LANE_LBL + col * NODE_STEP;
+      var y   = lOff[ln] + LANE_PAD + row * (NODE_H + V_GAP);
+      posMap[jid] = {
+        x: x, y: y, cx: x + NODE_W / 2, cy: y + NODE_H / 2,
+        row: row, col: col, lane: ln, idx: idx
+      };
     });
   });
 
-  // ── DOM: container scrollável ──
+  // ── 4. Arestas reais de _fluxoData ──
+  var subEdges = [], edgeSeen = {};
+  if (_fluxoData) {
+    Object.keys(_fluxoData).forEach(function(gn) {
+      (_fluxoData[gn].edges || []).forEach(function(e) {
+        var f = e.from.toUpperCase(), t = e.to.toUpperCase();
+        var k = f + '\u2192' + t;
+        if (posMap[f] && posMap[t] && !edgeSeen[k]) {
+          edgeSeen[k] = true;
+          subEdges.push({ from: f, to: t, status: e.status, edgeType: e.edgeType });
+        }
+      });
+    });
+  }
+
+  // ── 5. DOM container ──
   var scrollWrap = document.createElement('div');
   scrollWrap.className = 'impacto-swimlane-scroll';
 
   var inner = document.createElement('div');
-  inner.style.cssText = 'position:relative;width:' + totalW + 'px;height:' + totalH + 'px;';
+  inner.style.cssText = 'position:relative;width:' + innerW + 'px;height:' + totalH + 'px;' +
+    'font-family:Segoe UI,Arial,sans-serif;';
 
-  // ── Lanes: fundo + rótulo esquerdo ──
+  // ── 6. Fundos de lane + rótulos ──
   var LANE_CFG = [
     { bg: '#eef4ff', border: '#c5d9f5', lbl: 'Antecessores', tc: '#1a4d8a' },
-    { bg: '#f0f9f0', border: '#b8dbb8', lbl: 'Analisado',     tc: '#1b5e20' },
-    { bg: '#fffbec', border: '#f0dea0', lbl: 'Dependentes',   tc: '#7a5404' }
+    { bg: '#f0f9f0', border: '#b8dbb8', lbl: 'Analisado',    tc: '#1b5e20' },
+    { bg: '#fffbec', border: '#f0dea0', lbl: 'Dependentes',  tc: '#7a5404' }
   ];
   for (var l = 0; l < 3; l++) {
-    if (lH[l] === 0) continue;
+    if (!lH[l]) continue;
     var band = document.createElement('div');
-    band.style.cssText = 'position:absolute;left:0;top:' + lOff[l] + 'px;width:' + totalW + 'px;height:' + lH[l] + 'px;' +
-      'background:' + LANE_CFG[l].bg + ';border-top:1.5px solid ' + LANE_CFG[l].border + ';box-sizing:border-box;';
+    band.style.cssText = 'position:absolute;left:0;top:' + lOff[l] + 'px;' +
+      'width:' + innerW + 'px;height:' + lH[l] + 'px;' +
+      'background:' + LANE_CFG[l].bg + ';' +
+      'border-top:1.5px solid ' + LANE_CFG[l].border + ';box-sizing:border-box;';
     inner.appendChild(band);
 
     var lbl = document.createElement('div');
-    lbl.style.cssText = 'position:absolute;left:0;top:' + lOff[l] + 'px;width:' + (LANE_LBL_W - 8) + 'px;height:' + lH[l] + 'px;' +
+    lbl.style.cssText = 'position:absolute;left:0;top:' + lOff[l] + 'px;' +
+      'width:' + (LANE_LBL - 8) + 'px;height:' + lH[l] + 'px;' +
       'display:flex;align-items:center;justify-content:center;' +
-      'font-size:11px;font-weight:700;color:' + LANE_CFG[l].tc + ';text-align:center;' +
-      'padding:2px 5px;box-sizing:border-box;line-height:1.3;' +
+      'font-size:11px;font-weight:700;color:' + LANE_CFG[l].tc + ';' +
+      'text-align:center;padding:2px 5px;box-sizing:border-box;line-height:1.3;' +
       'border-right:2px solid ' + LANE_CFG[l].border + ';';
     lbl.textContent = LANE_CFG[l].lbl;
     inner.appendChild(lbl);
   }
 
-  // ── Cabeçalhos de nível acima das colunas ──
-  for (var li3 = 0; li3 < numLevels; li3++) {
-    var hdr = document.createElement('div');
-    hdr.style.cssText = 'position:absolute;left:' + (LANE_LBL_W + li3 * COL_STEP + NODE_W / 2 - 12) + 'px;top:4px;' +
-      'font-size:9px;font-weight:700;color:#c0c8d8;letter-spacing:0.5px;';
-    hdr.textContent = 'N' + fluxoPath[li3].nivel;
-    inner.appendChild(hdr);
-
-    // Linha divisória de coluna
-    if (li3 > 0) {
-      var div = document.createElement('div');
-      div.style.cssText = 'position:absolute;left:' + (LANE_LBL_W + li3 * COL_STEP - H_GAP / 2) + 'px;' +
-        'top:' + HEADER_H + 'px;width:1px;height:' + (totalH - HEADER_H) + 'px;background:#e0e6f0;';
-      inner.appendChild(div);
-    }
-  }
-
-  // ── SVG overlay — setas ──
+  // ── 7. SVG overlay ──
   var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('style', 'position:absolute;left:0;top:0;pointer-events:none;overflow:visible;');
-  svg.setAttribute('width', totalW);
+  svg.setAttribute('width', innerW);
   svg.setAttribute('height', totalH);
 
   var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-  function mkMark(id, color) {
+  function mkMark(id, color, opacity) {
     var mk = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
-    mk.setAttribute('id', id); mk.setAttribute('markerWidth', '7'); mk.setAttribute('markerHeight', '7');
-    mk.setAttribute('refX', '6'); mk.setAttribute('refY', '3'); mk.setAttribute('orient', 'auto');
+    mk.setAttribute('id', id);
+    mk.setAttribute('markerWidth', '7'); mk.setAttribute('markerHeight', '7');
+    mk.setAttribute('refX', '6');       mk.setAttribute('refY', '3');
+    mk.setAttribute('orient', 'auto');
     var p = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    p.setAttribute('points', '0 0,7 3,0 6'); p.setAttribute('fill', color);
+    p.setAttribute('points', '0 0,7 3,0 6');
+    p.setAttribute('fill', color);
+    if (opacity) p.setAttribute('opacity', opacity);
     mk.appendChild(p); defs.appendChild(mk);
   }
-  mkMark('iA', '#3a6fc8');
-  mkMark('iAg', '#d4910a');
+  mkMark('svA',   '#3a6fc8');
+  mkMark('svAg',  '#d4910a');
+  mkMark('svSeq', '#a0b0cc', '0.8');
   svg.appendChild(defs);
 
+  // ── 8. Setas de sequência (fluxo dentro da lane) ──
+  // Conecta node[i] → node[i+1] em cada lane
+  // Mesmo row: seta horizontal →
+  // Quebra de row: curva pela direita descendo para a próxima linha
+  laneSeqs.forEach(function(seq, ln) {
+    for (var i = 0; i < seq.length - 1; i++) {
+      var cPos = posMap[seq[i]];
+      var nPos = posMap[seq[i + 1]];
+      if (!cPos || !nPos) continue;
+
+      var sp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      var sd;
+
+      if (cPos.row === nPos.row) {
+        // Mesma linha: seta reta →
+        var ax1 = cPos.x + NODE_W + 2, ay1 = cPos.cy;
+        var ax2 = nPos.x - 4,          ay2 = nPos.cy;
+        sd = 'M ' + ax1 + ' ' + ay1 + ' L ' + ax2 + ' ' + ay2;
+        sp.setAttribute('stroke-width', '1.8');
+      } else {
+        // Quebra de linha: curva pela margem direita até o início da próxima linha
+        var ex = LANE_LBL + maxColsUsed * NODE_STEP - H_GAP + 36; // margem direita
+        var bx1 = cPos.x + NODE_W + 3, by1 = cPos.cy;
+        var tx2 = nPos.cx,              ty2 = nPos.y - 4;
+        var midY = nPos.y + NODE_H / 2;
+        sd = 'M ' + bx1 + ' ' + by1 +
+             ' C ' + (ex + 18) + ' ' + by1 + ',' +
+                     (ex + 18) + ' ' + midY + ',' +
+                     tx2 + ' ' + midY +
+             ' L ' + tx2 + ' ' + ty2;
+        sp.setAttribute('stroke-width', '1.5');
+      }
+
+      sp.setAttribute('d', sd);
+      sp.setAttribute('fill', 'none');
+      sp.setAttribute('stroke', '#a0b0cc');
+      sp.setAttribute('stroke-dasharray', '5 3');
+      sp.setAttribute('marker-end', 'url(#svSeq)');
+      svg.appendChild(sp);
+    }
+  });
+
+  // ── 9. Setas de dependência reais ──
   subEdges.forEach(function(e) {
     var s = posMap[e.from], t = posMap[e.to];
     if (!s || !t) return;
+    var isGen = e.edgeType === 'generation';
+    var color  = isGen ? '#d4910a' : '#3a6fc8';
+    var markId = isGen ? 'svAg'   : 'svA';
+
     var x1 = s.x + NODE_W, y1 = s.cy;
     var x2 = t.x - 2,      y2 = t.cy;
-    var isGen = e.edgeType === 'generation';
-    var color = isGen ? '#d4910a' : '#3a6fc8';
-    var cpX   = (x1 + x2) / 2;
-    var d = 'M ' + x1 + ' ' + y1 + ' C ' + cpX + ' ' + y1 + ',' + cpX + ' ' + y2 + ',' + x2 + ' ' + y2;
+    var cpX = (x1 + x2) / 2;
+
     var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    var d = 'M ' + x1 + ' ' + y1 +
+            ' C ' + cpX + ' ' + y1 + ',' + cpX + ' ' + y2 + ',' + x2 + ' ' + y2;
     path.setAttribute('d', d);
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', color);
-    path.setAttribute('stroke-width', '1.8');
-    path.setAttribute('marker-end', 'url(#' + (isGen ? 'iAg' : 'iA') + ')');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('marker-end', 'url(#' + markId + ')');
     if (isGen) path.setAttribute('stroke-dasharray', '5 3');
     svg.appendChild(path);
 
@@ -966,9 +1002,10 @@ function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
       var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
       var rw = e.status.length * 5.5 + 8;
       var bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bg.setAttribute('x', mx - rw/2); bg.setAttribute('y', my - 9);
-      bg.setAttribute('width', rw); bg.setAttribute('height', 12);
-      bg.setAttribute('rx', '3'); bg.setAttribute('fill', '#fff'); bg.setAttribute('opacity', '0.9');
+      bg.setAttribute('x', mx - rw / 2); bg.setAttribute('y', my - 9);
+      bg.setAttribute('width', rw);      bg.setAttribute('height', 12);
+      bg.setAttribute('rx', '3');
+      bg.setAttribute('fill', '#fff'); bg.setAttribute('opacity', '0.9');
       svg.appendChild(bg);
       var lt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       lt.setAttribute('x', mx); lt.setAttribute('y', my + 1);
@@ -979,25 +1016,29 @@ function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
       svg.appendChild(lt);
     }
   });
+
   inner.appendChild(svg);
 
-  // ── Boxes dos nodes (acima do SVG) ──
+  // ── 10. Boxes dos nodes ──
   Object.keys(posMap).forEach(function(jid) {
     var pos  = posMap[jid];
-    var lane = pos.lane;
+    var info = nodeInfo[jid];
+    var role = info.role;
     var temCal = _calData && (_calData.jobs[jid] || _calData.jobs[jid.toUpperCase()]);
     var bgC, brdC, txtC, shadow = '';
-    if (lane === 1)      { bgC = '#1a2a4a'; brdC = '#3a6fc8'; txtC = '#fff'; shadow = '0 2px 10px rgba(58,111,200,.35)'; }
-    else if (lane === 0) { bgC = '#d8eaff'; brdC = '#7ab3e8'; txtC = '#1a4d8a'; }
-    else                 { bgC = '#fff3cd'; brdC = '#f0b429'; txtC = '#7a5404'; }
-    if (temCal && lane !== 1) brdC = '#ffc107';
+    if (role === 'selected')       { bgC = '#1a2a4a'; brdC = '#3a6fc8'; txtC = '#fff'; shadow = '0 2px 10px rgba(58,111,200,.35)'; }
+    else if (role === 'upstream')  { bgC = '#d8eaff'; brdC = '#7ab3e8'; txtC = '#1a4d8a'; }
+    else                           { bgC = '#fff3cd'; brdC = '#f0b429'; txtC = '#7a5404'; }
+    if (temCal && role !== 'selected') brdC = '#ffc107';
 
     var box = document.createElement('div');
-    box.style.cssText = 'position:absolute;left:' + pos.x + 'px;top:' + pos.y + 'px;' +
+    box.style.cssText =
+      'position:absolute;left:' + pos.x + 'px;top:' + pos.y + 'px;' +
       'width:' + NODE_W + 'px;height:' + NODE_H + 'px;border-radius:7px;' +
       'display:flex;align-items:center;justify-content:center;text-align:center;' +
       'font-size:11px;font-weight:700;font-family:Segoe UI,Arial,sans-serif;' +
-      'background:' + bgC + ';border:' + (lane === 1 ? '2.5' : '1.5') + 'px solid ' + brdC + ';' +
+      'background:' + bgC + ';' +
+      'border:' + (role === 'selected' ? '2.5' : '1.5') + 'px solid ' + brdC + ';' +
       (shadow ? 'box-shadow:' + shadow + ';' : '') +
       'cursor:pointer;user-select:none;overflow:hidden;padding:0 7px;box-sizing:border-box;' +
       'color:' + txtC + ';transition:opacity .13s,transform .1s;';
