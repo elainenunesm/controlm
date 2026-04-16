@@ -2490,8 +2490,19 @@ function _fluxoParse(src, filename) {
     var line = raw.trim();
     if (!line) continue;
 
-    // ── Detecta seção CROSS REFERENCE ─────────────────
-    if (/CROSS\s+REFERENCE/i.test(line)) {
+    // ── Detecta seção PREREQUISITE CONDITIONS (col 68 do relatório) ─────
+    // "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS" vem antes de "CONDITION"
+    // Deve ser verificado ANTES do check genérico de CROSS REFERENCE
+    if (/PREREQUISITE\s+CONDITIONS/i.test(line)) {
+      inCondition = true;
+      inCrossRef  = false;
+      curJob = null; waitCont = false;
+      continue;
+    }
+
+    // ── Detecta seção CROSS REFERENCE (IN/OUT com ODATE) ──────────────
+    // Exclui linhas com PREREQUISITE para não sobrescrever inCondition
+    if (/CROSS\s+REFERENCE/i.test(line) && !/PREREQUISITE/i.test(line)) {
       inCrossRef  = true;
       inCondition = false;
       curJob = null; waitCont = false;
@@ -2512,9 +2523,13 @@ function _fluxoParse(src, filename) {
       continue;
     }
 
-    // ── Detecta seção CONDITION simples (from-to, layout fixo de colunas) ──
-    // Formato: col2/size8 = job produtor, col10 = '-', col11/size8 = job consumidor
-    if (!inCrossRef && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
+    // ── Detecta linha "CONDITION" dentro da seção PREREQUISITE (cabeçalho / separador)
+    // Quando já estamos em inCondition, a linha literal "CONDITION" e "----" são apenas cabeçalho
+    if (inCondition && /^-+$/.test(line)) continue;  // separador de traços → ignora
+    if (inCondition && /^\s*CONDITION\s*$/i.test(line)) continue; // linha só com "CONDITION" → ignora
+
+    // ── Detecta seção CONDITION simples fora do PREREQUISITE (fallback) ─
+    if (!inCrossRef && !inCondition && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
       inCondition = true;
       curJob = null; waitCont = false;
       continue;
