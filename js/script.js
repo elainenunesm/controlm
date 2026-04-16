@@ -2545,25 +2545,32 @@ function _fluxoParse(src, filename) {
     // O consumidor é curCondMember (extraído do cabeçalho CONDITION) ou o 2º token
     if (inCondition) {
       if (/^[-\s]+$/.test(line)) continue;  // separador ───────
-      // Extrai produtor: primeiro token alfanumérico da linha
-      var condDataRx = /([A-Z][A-Z0-9]{1,29})/i;
-      var condDataM  = line.match(condDataRx);
-      if (condDataM && curGroup) {
-        var cprod = condDataM[1].toUpperCase();
-        // Consumidor: curCondMember se disponível, senão segundo token após '-'
-        var ccons = curCondMember;
-        if (!ccons) {
-          var condParts = line.match(/[A-Z][A-Z0-9]{1,29}-([A-Z][A-Z0-9]{1,29})/i);
-          ccons = condParts ? condParts[1].toUpperCase() : null;
+      // Se a linha tem LVL numérico na posição correta, é uma linha de JOB → sai do modo CONDITION
+      var lvlTest = raw.slice(0, colMember).trim();
+      if (lvlTest !== '' && !isNaN(parseInt(lvlTest, 10))) {
+        inCondition   = false;
+        curCondMember = null;
+        // não dá continue: deixa cair para o parser de JOB abaixo
+      } else {
+        // Extrai produtor: primeiro token alfanumérico da linha
+        var condDataRx = /([A-Z][A-Z0-9]{1,29})/i;
+        var condDataM  = line.match(condDataRx);
+        if (condDataM && curGroup) {
+          var cprod = condDataM[1].toUpperCase();
+          var ccons = curCondMember;
+          if (!ccons) {
+            var condParts = line.match(/[A-Z][A-Z0-9]{1,29}-([A-Z][A-Z0-9]{1,29})/i);
+            ccons = condParts ? condParts[1].toUpperCase() : null;
+          }
+          if (ccons && cprod !== ccons &&
+              /^[A-Z][A-Z0-9]{1,29}$/.test(cprod) &&
+              /^[A-Z][A-Z0-9]{1,29}$/.test(ccons)) {
+            if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
+            simpleCondEdges[curGroup].push({ from: cprod, to: ccons });
+          }
         }
-        if (ccons && cprod !== ccons &&
-            /^[A-Z][A-Z0-9]{1,29}$/.test(cprod) &&
-            /^[A-Z][A-Z0-9]{1,29}$/.test(ccons)) {
-          if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
-          simpleCondEdges[curGroup].push({ from: cprod, to: ccons });
-        }
+        continue;
       }
-      continue;
     }
 
     // ── CROSS REFERENCE: processa linhas de condição ──
