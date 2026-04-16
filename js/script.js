@@ -2470,8 +2470,9 @@ function _fluxoParse(src, filename) {
   var curGroup    = null;
   var curJob      = null;
   var waitCont    = false;   // aguarda linha de continuação (após '\')
-  var inCrossRef  = false;   // estamos na seção CROSS REFERENCE
-  var inCondition = false;   // estamos na seção PREREQUISITE CONDITIONS
+  var inCrossRef    = false;   // estamos na seção CROSS REFERENCE
+  var inCondition   = false;   // estamos na seção CONDITION
+  var curCondMember = null;    // MEMBER (consumidor) da linha CONDITION atual
 
   // Posições de coluna fixas (1-indexed: member=col7/size8, depend=col16/size8, jobname=col25/size28)
   // Convertidas para 0-indexed (JavaScript slice)
@@ -2495,14 +2496,22 @@ function _fluxoParse(src, filename) {
     //   " CONDITION           SSSSCXX2"  ← MEMBER (consumidor) na MESMA linha
     //   " ─────────────────────────────"  ← separador
     //   " SSSSCXX1-SSSSCXX1"             ← nome da condição (produtor é o 1º token)
-    // Cobre também "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS" (title da seção)
-    if (!inCrossRef && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
+    // ATENÇÃO: só entra em inCondition se NÃO estiver no JOB FLOW em andamento
+    // (linha começa com CONDITION, sem dígito LVL no início)
+    if (!inCrossRef && !inCondition && /^\s*CONDITION\b/i.test(line) &&
+        !/\bODATE\b/i.test(line) && !/^\s*\d/.test(line)) {
       // Tenta extrair MEMBER (consumidor) da mesma linha: primeiro token após "CONDITION"
       var cmHdr = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
       curCondMember = cmHdr ? cmHdr[1].toUpperCase() : null;
       inCondition = true;
       inCrossRef  = false;
       curJob = null; waitCont = false;
+      continue;
+    }
+    // Dentro de inCondition: nova subseção CONDITION com novo MEMBER
+    if (inCondition && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
+      var cmHdr3 = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
+      curCondMember = cmHdr3 ? cmHdr3[1].toUpperCase() : curCondMember;
       continue;
     }
 
@@ -2536,12 +2545,6 @@ function _fluxoParse(src, filename) {
     // O consumidor é curCondMember (extraído do cabeçalho CONDITION) ou o 2º token
     if (inCondition) {
       if (/^[-\s]+$/.test(line)) continue;  // separador ───────
-      // Nova subseção CONDITION: nova linha com CONDITION + MEMBER
-      if (/^\s*CONDITION\s+[A-Z]/i.test(line)) {
-        var cmHdr2 = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
-        curCondMember = cmHdr2 ? cmHdr2[1].toUpperCase() : null;
-        continue;
-      }
       // Extrai produtor: primeiro token alfanumérico da linha
       var condDataRx = /([A-Z][A-Z0-9]{1,29})/i;
       var condDataM  = line.match(condDataRx);
