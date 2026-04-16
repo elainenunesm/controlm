@@ -1361,9 +1361,11 @@ function renderImpacto(nome) {
   // ── Cadeia de impacto ────────────────────────────────────
   var cadeia = _impactoCadeia(nomeUp);   // downstream jobs
   var upstream = _impactoUpstream(nomeUp); // predecessores diretos
-  var upstreamAll = _impactoUpstreamComNivel(nomeUp).map(function(r) { return r.id; }); // todos os predecessores (transitivos)
-  var todosJobs = upstreamAll.concat([nomeUp]).concat(cadeia); // predecessores + raiz + downstream
-  console.log('[DEBUG impacto] nomeUp:', nomeUp, '| upstreamAll:', upstreamAll, '| cadeia:', cadeia, '| todosJobs:', todosJobs);
+  // Ordena predecessores por nível decrescente: maior nível = mais distante = executa primeiro
+  var upstreamAll = _impactoUpstreamComNivel(nomeUp)
+    .sort(function(a, b) { return b.nivel - a.nivel; })
+    .map(function(r) { return r.id; });
+  var todosJobs = upstreamAll.concat([nomeUp]).concat(cadeia); // predecessores (ordem de execução) + raiz + downstream
 
   // Seção: Cadeia
   var secCadeia = document.createElement('div');
@@ -1703,7 +1705,9 @@ function renderImpacto(nome) {
 function exportarImpactoCSV(jobId, todosJobs) {
   var yr = _calData ? _calData.year : '';
   var nomeUp = jobId.toUpperCase();
-  var upstreamAllExport = _impactoUpstreamComNivel(nomeUp).map(function(r) { return r.id; });
+  var upstreamAllExport = _impactoUpstreamComNivel(nomeUp)
+    .sort(function(a, b) { return b.nivel - a.nivel; })
+    .map(function(r) { return r.id; });
 
   // Mapa de predecessores diretos por job
   var predMapExport = {};
