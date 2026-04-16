@@ -2482,15 +2482,48 @@ function _fluxoParse(src, filename) {
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
 
+  // PREREQUISITE CONDITIONS: pares {producer, member} coletados para aplicar como fallback
+  var prereqEdges  = [];
+  var inPrereqCond = false;
+
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
     var line = raw.trim();
     if (!line) continue;
 
-    // ── Detecta seção CROSS REFERENCE ─────────────────
-    if (/CROSS\s+REFERENCE/i.test(line)) {
-      inCrossRef = true;
+    // ── Detecta seção PREREQUISITE CONDITIONS (tem prioridade sobre CROSS REFERENCE) ──
+    // Header: "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS" (ou "PREFEQUISITE" — typo do sistema)
+    if (/CROSS\s+REFERENCE\s+LIST/i.test(line)) {
+      inPrereqCond = true;
+      inCrossRef   = false;
       curJob = null; waitCont = false;
+      continue;
+    }
+
+    // ── Detecta seção CROSS REFERENCE (IN/OUT) ─────────────────────
+    if (/CROSS\s+REFERENCE/i.test(line)) {
+      inCrossRef   = true;
+      inPrereqCond = false;
+      curJob = null; waitCont = false;
+      continue;
+    }
+
+    // ── PREREQUISITE CONDITIONS: coleta pares produtor → member ────
+    // Formato: "PRODUTOR-CONSUMIDOR    ...espaços...   MEMBER"
+    // Produtor = parte antes do primeiro '-' na condition; MEMBER = último token da linha
+    if (inPrereqCond) {
+      if (/^\s*CONDITION\s/i.test(raw)) continue;  // cabeçalho de coluna
+      if (/^[=\-─]+$/.test(line))       continue;  // separador
+      var pcToks = line.split(/\s+/).filter(function(t) { return t.length > 0; });
+      if (pcToks.length < 2) continue;
+      var pcCond   = pcToks[0].toUpperCase();
+      var pcMember = pcToks[pcToks.length - 1].toUpperCase();
+      var pcDash   = pcCond.indexOf('-');
+      if (pcDash < 1) continue;
+      var pcProd = pcCond.slice(0, pcDash);
+      if (!/^[A-Z][A-Z0-9]{2,13}$/.test(pcProd))   continue;
+      if (!/^[A-Z][A-Z0-9]{2,13}$/.test(pcMember)) continue;
+      prereqEdges.push({ producer: pcProd, member: pcMember });
       continue;
     }
 
@@ -2655,6 +2688,28 @@ function _fluxoParse(src, filename) {
         _fluxoAddEdge(tg, extFrom, consumer.member, parts[2] || 'OK', false, 'dependency');
       });
     }
+  });
+
+  // ── Resolve PREREQUISITE CONDITIONS como fallback ─────────────
+  // Aplica aresta produtor→member APENAS se o member ainda não tem nenhuma aresta de dependência
+  prereqEdges.forEach(function(pe) {
+    var memberName   = pe.member;
+    var producerName = pe.producer;
+    // Busca o grupo que contém o member
+    var tg = null, tgName = null;
+    Object.keys(result).forEach(function(g) {
+      if (!tg && result[g].jobs[memberName]) { tg = result[g]; tgName = g; }
+    });
+    if (!tg) return;  // member não existe no JOB FLOW deste arquivo
+    // Só aplica se o member não tem nenhuma aresta chegando nele
+    var jaTemDep = tg.edges.some(function(e) { return e.to === memberName; });
+    if (jaTemDep) return;
+    // Cria nó produtor se não existe
+    if (!tg.jobs[producerName]) {
+      tg.jobs[producerName] = { id: producerName, label: producerName,
+        group: tgName, level: 0, calendar: '-', type: 'NORMAL', generatedBy: null };
+    }
+    _fluxoAddEdge(tg, producerName, memberName, 'OK', false, 'dependency');
   });
 
   if (Object.keys(result).length === 0) {
