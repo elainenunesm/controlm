@@ -2471,6 +2471,7 @@ function _fluxoParse(src, filename) {
   var curJob      = null;
   var waitCont    = false;   // aguarda linha de continuação (após '\')
   var inCrossRef  = false;   // estamos na seção CROSS REFERENCE
+  var inCondition = false;   // estamos na seção CONDITION (from-to layout fixo)
 
   // Posições de coluna fixas (1-indexed: member=col7/size8, depend=col16/size8, jobname=col25/size28)
   // Convertidas para 0-indexed (JavaScript slice)
@@ -2481,6 +2482,8 @@ function _fluxoParse(src, filename) {
   // Mapa de condições para resolver IN/OUT depois
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
+  // Arestas simples da seção CONDITION: { groupName: [{from, to}] }
+  var simpleCondEdges = {};
 
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
@@ -2489,7 +2492,8 @@ function _fluxoParse(src, filename) {
 
     // ── Detecta seção CROSS REFERENCE ─────────────────
     if (/CROSS\s+REFERENCE/i.test(line)) {
-      inCrossRef = true;
+      inCrossRef  = true;
+      inCondition = false;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2498,11 +2502,34 @@ function _fluxoParse(src, filename) {
     if (line.indexOf('BY GROUP') >= 0) {
       var gm = line.match(/BY\s+GROUP\s+([A-Z0-9_\-]+)\s+GROUP/i);
       if (gm) {
-        curGroup   = gm[1].toUpperCase();
-        inCrossRef = false;
+        curGroup    = gm[1].toUpperCase();
+        inCrossRef  = false;
+        inCondition = false;
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
+      }
+      continue;
+    }
+
+    // ── Detecta seção CONDITION simples (from-to, layout fixo de colunas) ──
+    // Formato: col2/size8 = job produtor, col10 = '-', col11/size8 = job consumidor
+    if (!inCrossRef && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
+      inCondition = true;
+      curJob = null; waitCont = false;
+      continue;
+    }
+
+    // ── CONDITION simples: extrai pares FROM → TO pelo layout fixo ──────
+    if (inCondition) {
+      if (/^[-\s]+$/.test(line)) continue;  // linha separadora de traços
+      var cfrom = raw.length > 8  ? raw.slice(1, 9).trim().toUpperCase()  : '';
+      var csep  = raw.length > 9  ? raw[9]                                : '';
+      var cto   = raw.length > 17 ? raw.slice(10, 18).trim().toUpperCase() : '';
+      if (cfrom && csep === '-' && cto &&
+          /^[A-Z][A-Z0-9]{1,29}$/.test(cfrom) && /^[A-Z][A-Z0-9]{1,29}$/.test(cto) && curGroup) {
+        if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
+        simpleCondEdges[curGroup].push({ from: cfrom, to: cto });
       }
       continue;
     }
@@ -2655,6 +2682,21 @@ function _fluxoParse(src, filename) {
         _fluxoAddEdge(tg, extFrom, consumer.member, parts[2] || 'OK', false, 'dependency');
       });
     }
+  });
+
+  // ── Aplica arestas da seção CONDITION simples ─────────────────────────
+  // Cria aresta FROM→TO para cada par coletado; cria nó fantasma se FROM não existe
+  Object.keys(simpleCondEdges).forEach(function(g) {
+    if (!result[g]) return;
+    simpleCondEdges[g].forEach(function(ce) {
+      if (!result[g].jobs[ce.from]) {
+        result[g].jobs[ce.from] = {
+          id: ce.from, label: ce.from, group: g, level: 0,
+          calendar: '-', type: 'NORMAL', generatedBy: null
+        };
+      }
+      _fluxoAddEdge(result[g], ce.from, ce.to, 'OK', false, 'dependency');
+    });
   });
 
   if (Object.keys(result).length === 0) {
