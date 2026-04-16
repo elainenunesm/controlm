@@ -1346,6 +1346,11 @@ function renderImpacto(nome) {
     return;
   }
 
+  _showLoading('Gerando análise de impacto...');
+  setTimeout(function() { _renderImpactoInterno(nome, c); }, 30);
+}
+
+function _renderImpactoInterno(nome, c) {
   var nomeUp = nome.toUpperCase();
 
   // ── Cabeçalho ───────────────────────────────────────────
@@ -1706,12 +1711,15 @@ function renderImpacto(nome) {
   }
 
   c.appendChild(expBar);
+  _hideLoading();
 }
-
-// ============================================================
-// EXPORTAR IMPACTO HTML
 // ============================================================
 function exportarImpactoHTML(jobId, todosJobs, upstreamAll, cadeia, predMapByJob) {
+  _showLoading('Gerando HTML...');
+  setTimeout(function() { _exportarImpactoHTMLInterno(jobId, todosJobs, upstreamAll, cadeia, predMapByJob); }, 30);
+}
+
+function _exportarImpactoHTMLInterno(jobId, todosJobs, upstreamAll, cadeia, predMapByJob) {
   var nomeUp = jobId.toUpperCase();
   var yr = _calData ? _calData.year : new Date().getFullYear();
   var geradoEm = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
@@ -1915,6 +1923,7 @@ function exportarImpactoHTML(jobId, todosJobs, upstreamAll, cadeia, predMapByJob
   a.click();
   document.body.removeChild(a);
   setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+  _hideLoading();
   toast('HTML exportado: impacto_' + nomeUp + '_' + yr + '.html');
 }
 
@@ -2074,6 +2083,18 @@ function fecharModalBtn() {
 // ============================================================
 // TOAST
 // ============================================================
+function _showLoading(msg) {
+  var ov = document.getElementById('loading-overlay');
+  var lm = document.getElementById('loading-msg');
+  if (!ov) return;
+  if (lm) lm.textContent = msg || 'Aguarde...';
+  ov.style.display = 'flex';
+}
+function _hideLoading() {
+  var ov = document.getElementById('loading-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
 function toast(msg, dur) {
   var t = document.getElementById('toast');
   t.textContent = msg;
@@ -2099,6 +2120,7 @@ function calImportar() {
 function calOnFile(evt) {
   var files = evt.target.files;
   if (!files || files.length === 0) return;
+  _showLoading(files.length > 1 ? 'Importando ' + files.length + ' calendários...' : 'Importando calendário...');
 
   var fileArray = Array.prototype.slice.call(files);
   var total = fileArray.length;
@@ -2161,6 +2183,7 @@ function calOnFile(evt) {
     _calSyncJobsToSidebar();
     renderCalendario();
     toast('Calendário importado: ' + Object.keys(merged.jobs).length + ' job(s) em ' + _calFileNames.length + ' arquivo(s).');
+    _hideLoading();
     mostrarTab('calendario', document.querySelectorAll('.tab')[2]);
   }
 
@@ -2706,17 +2729,25 @@ function fluxoImportar() {
 function fluxoOnFile(evt) {
   var files = evt.target.files;
   if (!files || !files.length) return;
+  var total = files.length;
+  var done = 0;
+  _showLoading(total > 1 ? 'Importando ' + total + ' arquivos...' : 'Importando ' + files[0].name + '...');
   Array.prototype.forEach.call(files, function(file) {
     var reader = new FileReader();
     reader.onload = function(e) {
       var src = e.target.result;
       var bad = (src.match(/\ufffd/g) || []).length;
+      var finish = function(text) {
+        _fluxoParse(text, file.name);
+        done++;
+        if (done === total) _hideLoading();
+      };
       if (bad > src.length * 0.05) {
         var r2 = new FileReader();
-        r2.onload = function(e2) { _fluxoParse(e2.target.result, file.name); };
+        r2.onload = function(e2) { finish(e2.target.result); };
         r2.readAsText(file, 'windows-1252');
       } else {
-        _fluxoParse(src, file.name);
+        finish(src);
       }
     };
     reader.readAsText(file, 'UTF-8');
