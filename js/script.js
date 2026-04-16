@@ -1653,7 +1653,7 @@ function renderImpacto(nome) {
 
   var btnCSV = document.createElement('button');
   btnCSV.className = 'btn btn-primary';
-  btnCSV.innerHTML = '&#8681; Exportar CSV';
+  btnCSV.innerHTML = '&#8681; Exportar Excel';
   btnCSV.onclick = function() { exportarImpactoCSV(nomeUp, todosJobs); };
   expBar.appendChild(btnCSV);
 
@@ -1669,16 +1669,17 @@ function renderImpacto(nome) {
 }
 
 // ============================================================
-// EXPORTAR IMPACTO CSV
+// EXPORTAR IMPACTO EXCEL
 // ============================================================
 function exportarImpactoCSV(jobId, todosJobs) {
   var yr = _calData ? _calData.year : '';
-  var linhas = [
-    ['"Job"', '"Papel"', '"Descrição"', '"Exec/Ano"', '"Frequência"', '"Dias Úteis"', '"Fins Semana"', '"Meses Ativos"', '"Próximas 5 Execuções"', '"Risco"']
-  ];
   var nomeUp = jobId.toUpperCase();
-  var cadeia = _impactoCadeia(nomeUp);
   var upstream = _impactoUpstream(nomeUp);
+
+  // ── Aba 1: Relatório por Job ─────────────────────────────
+  var dadosJobs = [
+    ['Job', 'Papel', 'Descrição', 'Exec/Ano', 'Frequência', 'Dias Úteis', 'Fins de Semana', 'Meses Ativos', 'Próximas 5 Execuções', 'Risco']
+  ];
 
   todosJobs.forEach(function(jid) {
     var papel = jid === nomeUp ? 'Raiz' : (upstream.indexOf(jid) >= 0 ? 'Predecessor' : 'Dependente');
@@ -1690,7 +1691,6 @@ function exportarImpactoCSV(jobId, todosJobs) {
         if (j && j.label && j.label !== jid) { jobDesc = j.label; return true; }
       });
     }
-
     if (_calData) {
       var jdCal = _calData.jobs[jid] || _calData.jobs[jid.toUpperCase()];
       if (jdCal) {
@@ -1705,41 +1705,33 @@ function exportarImpactoCSV(jobId, todosJobs) {
         risco = stats.totalExec >= 250 ? 'Alto' : stats.totalExec >= 80 ? 'Médio' : 'Baixo';
       }
     }
-
-    linhas.push([
-      '"' + jid + '"',
-      '"' + papel + '"',
-      '"' + jobDesc.replace(/"/g, "'") + '"',
-      '"' + execAno + '"',
-      '"' + freq + '"',
-      '"' + diasUteis + '"',
-      '"' + fds + '"',
-      '"' + mesesAt + '"',
-      '"' + proximas + '"',
-      '"' + risco + '"'
-    ]);
+    dadosJobs.push([jid, papel, jobDesc, execAno, freq, diasUteis, fds, mesesAt, proximas, risco]);
   });
 
-  // Seção do heatmap de risco: top 10 dias mais críticos
+  // ── Aba 2: Top 10 dias de maior risco ───────────────────
+  var dadosRisco = [['Data', 'Jobs Executando']];
   var riskMap = _impactoBuildRiskMap(todosJobs);
   var topDias = Object.keys(riskMap).sort(function(a, b) { return riskMap[b] - riskMap[a]; }).slice(0, 10);
-  if (topDias.length) {
-    linhas.push([]);
-    linhas.push(['"Top 10 Dias de Maior Risco"', '"Jobs Executando"']);
-    topDias.forEach(function(k) {
-      linhas.push(['"' + k + '"', '"' + riskMap[k] + '"']);
-    });
-  }
+  topDias.forEach(function(k) { dadosRisco.push([k, riskMap[k]]); });
 
-  var csv = linhas.map(function(r) { return r.join(','); }).join('\n');
-  var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-  var url  = URL.createObjectURL(blob);
-  var a    = document.createElement('a');
-  a.href = url;
-  a.download = 'impacto_' + jobId + (yr ? '_' + yr : '') + '.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('CSV exportado: ' + todosJobs.length + ' job(s).');
+  // ── Gera workbook ────────────────────────────────────────
+  var wb = XLSX.utils.book_new();
+
+  var ws1 = XLSX.utils.aoa_to_sheet(dadosJobs);
+  // Larguras de coluna aproximadas
+  ws1['!cols'] = [
+    {wch:20}, {wch:14}, {wch:32}, {wch:10}, {wch:20},
+    {wch:12}, {wch:14}, {wch:14}, {wch:36}, {wch:10}
+  ];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Relatório por Job');
+
+  var ws2 = XLSX.utils.aoa_to_sheet(dadosRisco);
+  ws2['!cols'] = [{wch:14}, {wch:18}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Top 10 Risco');
+
+  var fileName = 'impacto_' + jobId + (yr ? '_' + yr : '') + '.xlsx';
+  XLSX.writeFile(wb, fileName);
+  toast('Excel exportado: ' + todosJobs.length + ' job(s).');
 }
 
 // ============================================================
