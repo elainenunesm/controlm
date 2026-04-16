@@ -1370,6 +1370,19 @@ function renderImpacto(nome) {
     .map(function(r) { return r.id; });
   var todosJobs = upstreamAll.concat([nomeUp]).concat(cadeia); // predecessores (ordem de execução) + raiz + downstream
 
+  // Mapa de predecessores diretos por job (escopo global da função)
+  var predMapByJob = {};
+  if (_fluxoData) {
+    Object.keys(_fluxoData).forEach(function(gn) {
+      (_fluxoData[gn].edges || []).forEach(function(e) {
+        var fromUp = e.from.toUpperCase();
+        var toUp   = e.to.toUpperCase();
+        if (!predMapByJob[toUp]) predMapByJob[toUp] = [];
+        if (predMapByJob[toUp].indexOf(fromUp) < 0) predMapByJob[toUp].push(fromUp);
+      });
+    });
+  }
+
   // Seção: Cadeia
   var secCadeia = document.createElement('div');
   secCadeia.className = 'impact-section';
@@ -1610,19 +1623,6 @@ function renderImpacto(nome) {
       '<th>Risco</th>' +
       '</tr></thead>';
 
-    // Mapa de predecessores diretos por job: { 'JOBID': ['PRED1', 'PRED2', ...] }
-    var predMapByJob = {};
-    if (_fluxoData) {
-      Object.keys(_fluxoData).forEach(function(gn) {
-        (_fluxoData[gn].edges || []).forEach(function(e) {
-          var fromUp = e.from.toUpperCase();
-          var toUp   = e.to.toUpperCase();
-          if (!predMapByJob[toUp]) predMapByJob[toUp] = [];
-          if (predMapByJob[toUp].indexOf(fromUp) < 0) predMapByJob[toUp].push(fromUp);
-        });
-      });
-    }
-
     var tbody = document.createElement('tbody');
     todosJobs.forEach(function(jid) {
       var jdCal = _calData && (_calData.jobs[jid] || _calData.jobs[jid.toUpperCase()]);
@@ -1691,6 +1691,12 @@ function renderImpacto(nome) {
   btnCSV.onclick = function() { exportarImpactoCSV(nomeUp, todosJobs); };
   expBar.appendChild(btnCSV);
 
+  var btnHTML = document.createElement('button');
+  btnHTML.className = 'btn btn-secondary';
+  btnHTML.innerHTML = '&#128196; Exportar HTML';
+  btnHTML.onclick = function() { exportarImpactoHTML(nomeUp, todosJobs, upstreamAll, cadeia, predMapByJob); };
+  expBar.appendChild(btnHTML);
+
   if (DB[nome]) {
     var btnBasic = document.createElement('button');
     btnBasic.className = 'btn btn-secondary';
@@ -1700,6 +1706,216 @@ function renderImpacto(nome) {
   }
 
   c.appendChild(expBar);
+}
+
+// ============================================================
+// EXPORTAR IMPACTO HTML
+// ============================================================
+function exportarImpactoHTML(jobId, todosJobs, upstreamAll, cadeia, predMapByJob) {
+  var nomeUp = jobId.toUpperCase();
+  var yr = _calData ? _calData.year : new Date().getFullYear();
+  var geradoEm = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+
+  // ── Fluxo como imagem PNG ────────────────────────────────
+  var fluxoPng = null;
+  try { if (cyImpacto) fluxoPng = cyImpacto.png({ output: 'base64uri', full: true, scale: 2 }); } catch(e) {}
+
+  // ── Seção 1: Cadeia de Dependências ─────────────────────
+  function chip(jid, cls) {
+    var temCal = _calData && (_calData.jobs[jid] || _calData.jobs[jid.toUpperCase()]);
+    return '<span class="chip ' + cls + (temCal ? ' has-cal' : '') + '">' + jid + '</span>';
+  }
+  var upChips = upstreamAll.map(function(j) { return chip(j, 'chip-up'); }).join('');
+  var dnChips = cadeia.map(function(j) { return chip(j, 'chip-dn'); }).join('');
+  var secCadeia = '<details open><summary class="sec-hdr">&#9881; Cadeia de Depend&ecirc;ncias</summary><div class="sec-body">' +
+    (upstreamAll.length ? '<div class="grp-lbl">&#11014; Executa Antes (' + upstreamAll.length + ')</div><div class="chips">' + upChips + '</div><div style="margin-top:8px"></div>' : '') +
+    '<div class="grp-lbl">&#9654; Job Analisado</div><div class="chips">' + chip(nomeUp, 'chip-root') + '</div>' +
+    (cadeia.length ? '<div style="margin-top:8px"></div><div class="grp-lbl">&#11015; Dependentes (' + cadeia.length + ')</div><div class="chips">' + dnChips + '</div>' : '') +
+    '</div></details>';
+
+  // ── Seção 2: Fluxo do Sistema ────────────────────────────
+  var secFluxo = '';
+  if (fluxoPng) {
+    secFluxo = '<details open><summary class="sec-hdr">&#128260; Fluxo do Sistema</summary><div class="sec-body">' +
+      '<div class="legenda">' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#d8eaff;border:1.5px solid #7ab3e8;"></span>Antecessor</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#1a2a4a;border:2px solid #3a6fc8;"></span>Analisado</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#fff3cd;border:1.5px solid #f0b429;"></span>Dependente</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#ffe;border:2px solid #ffc107;"></span>Com calend&aacute;rio</span>' +
+      '</div>' +
+      '<div style="overflow:auto;border:1.5px solid #dde3ec;border-radius:8px;background:#f4f6fa;">' +
+      '<img src="' + fluxoPng + '" style="max-width:100%;display:block;">' +
+      '</div>' +
+      '</div></details>';
+  }
+
+  // ── Seção 3: Heatmap de Risco ────────────────────────────
+  var secHeatmap = '';
+  if (_calData) {
+    var riskMap = _impactoBuildRiskMap(todosJobs);
+    var maxRisco = Math.max.apply(null, [0].concat(Object.keys(riskMap).map(function(k) { return riskMap[k]; })));
+    var totalDiasRisco = Object.keys(riskMap).filter(function(k) { return riskMap[k] > 0; }).length;
+    var diasAlto = Object.keys(riskMap).filter(function(k) { return riskMap[k] >= 4; }).length;
+    var statsHtml = '<div class="stats-row">' +
+      '<div class="stat-card"><div class="sv">' + todosJobs.length + '</div><div class="sl">Jobs na Cadeia</div></div>' +
+      '<div class="stat-card"><div class="sv">' + totalDiasRisco + '</div><div class="sl">Dias c/ Exposi&ccedil;&atilde;o</div></div>' +
+      '<div class="stat-card"><div class="sv">' + diasAlto + '</div><div class="sl">Dias Alto Risco</div></div>' +
+      '<div class="stat-card"><div class="sv">' + maxRisco + '</div><div class="sl">Pico (jobs/dia)</div></div>' +
+      '</div>';
+    var calHtml = '<div style="overflow-x:auto"><div class="cal-grid">';
+    var hoje = new Date(); hoje.setHours(0,0,0,0);
+    for (var m = 1; m <= 12; m++) {
+      var dInM = new Date(yr, m, 0).getDate();
+      var firstDow = new Date(yr, m - 1, 1).getDay();
+      var mStr = (m < 10 ? '0' : '') + m;
+      calHtml += '<div class="cal-month"><div class="cal-mhdr">' + MESES_PT[m-1] + ' ' + yr + '</div><div class="cal-days">';
+      ['D','S','T','Q','Q','S','S'].forEach(function(ch) { calHtml += '<div class="cal-dhdr">' + ch + '</div>'; });
+      for (var ei = 0; ei < firstDow; ei++) calHtml += '<div class="cal-day"></div>';
+      for (var dd = 1; dd <= dInM; dd++) {
+        var dStr = (dd < 10 ? '0' : '') + dd;
+        var key = yr + '-' + mStr + '-' + dStr;
+        var cnt = riskMap[key] || 0;
+        var dtObj = new Date(yr, m-1, dd);
+        var rcls = cnt === 0 ? 'r0' : cnt === 1 ? 'r1' : cnt === 2 ? 'r2' : cnt === 3 ? 'r3' : 'rhi';
+        if (dtObj.getTime() === hoje.getTime()) rcls += ' today';
+        calHtml += '<div class="cal-day ' + rcls + '" title="' + dd + '/' + mStr + '/' + yr + ' \u2014 ' + cnt + ' job(s)">' + (cnt > 0 ? cnt : '') + '</div>';
+      }
+      calHtml += '</div></div>';
+    }
+    calHtml += '</div></div>';
+    secHeatmap = '<details open><summary class="sec-hdr">&#128293; Heatmap de Risco Anual &mdash; ' + yr + '</summary><div class="sec-body">' +
+      '<div class="legenda">' +
+      '<span>N&ordm; jobs executando:</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#eef0f4;border:1px solid #ccc;"></span>0</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#fff3cd;"></span>1</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#ffc107;"></span>2</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#fd7e14;"></span>3</span>' +
+      '<span class="leg-item"><span class="leg-sq" style="background:#dc3545;"></span>4+</span>' +
+      '</div>' +
+      statsHtml + calHtml + '</div></details>';
+  }
+
+  // ── Seção 4: Relatório de Execução por Job ───────────────
+  var secRel = '';
+  var jobsComCal = todosJobs.filter(function(jid) {
+    return _calData && (_calData.jobs[jid] || _calData.jobs[jid.toUpperCase()]);
+  });
+  if (_calData && jobsComCal.length) {
+    var rows = '';
+    todosJobs.forEach(function(jid) {
+      var predsDeJid = predMapByJob[jid] || [];
+      var papel, papelCls;
+      if (jid === nomeUp) {
+        papel = '&#11088; Job Analisado' + (predsDeJid.length ? '<br><small>Executa ap&oacute;s: ' + predsDeJid.join(', ') + '</small>' : '');
+        papelCls = 'row-root';
+      } else if (upstreamAll.indexOf(jid) >= 0) {
+        papel = '&#11014; Executa Antes' + (predsDeJid.length ? '<br><small>Ap&oacute;s: ' + predsDeJid.join(', ') + '</small>' : '<br><small>In&iacute;cio de fluxo</small>');
+        papelCls = 'row-up';
+      } else {
+        papel = '&#11015; Dependente';
+        papelCls = 'row-dn';
+      }
+      var execAno = '-', freq = '-', proximas = '-', risco = '-', riscoCls = '';
+      var jobDesc = '';
+      if (_fluxoData) {
+        Object.keys(_fluxoData).some(function(gn) {
+          var j = _fluxoData[gn].jobs[jid] || _fluxoData[gn].jobs[jid.toUpperCase()];
+          if (j && j.label && j.label !== jid) { jobDesc = j.label; return true; }
+        });
+      }
+      var jdCal = _calData && (_calData.jobs[jid] || _calData.jobs[jid.toUpperCase()]);
+      if (jdCal) {
+        var stats = _calJobStats(jid);
+        execAno = stats.totalExec;
+        freq = _calDetectarPadrao(jid).label;
+        var prox = _calProximasExecucoes(jid, 3);
+        proximas = prox.length ? prox.join(', ') : 'Nenhuma';
+        if (stats.totalExec >= 250)     { risco = '&#128308; Alto';  riscoCls = 'r-alto';  }
+        else if (stats.totalExec >= 80) { risco = '&#127937; M&eacute;dio'; riscoCls = 'r-med'; }
+        else                             { risco = '&#128994; Baixo'; riscoCls = 'r-baixo'; }
+      }
+      rows += '<tr class="' + papelCls + '">' +
+        '<td class="td-job">' + jid + '</td>' +
+        '<td class="td-papel">' + papel + '</td>' +
+        '<td class="td-desc">' + jobDesc + '</td>' +
+        '<td class="td-c">' + execAno + '</td>' +
+        '<td>' + freq + '</td>' +
+        '<td class="td-prox">' + proximas + '</td>' +
+        '<td class="' + riscoCls + '">' + risco + '</td>' +
+        '</tr>';
+    });
+    secRel = '<details open><summary class="sec-hdr">&#128203; Relat&oacute;rio de Execu&ccedil;&atilde;o por Job</summary><div class="sec-body" style="overflow-x:auto">' +
+      '<table class="rel-tbl"><thead><tr>' +
+      '<th>Job</th><th>Papel</th><th>Descri&ccedil;&atilde;o</th><th>Exec/Ano</th><th>Freq.</th><th>Pr&oacute;ximas Execu&ccedil;&otilde;es</th><th>Risco</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></details>';
+  }
+
+  // ── CSS embutido ─────────────────────────────────────────
+  var css = [
+    'body{font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#1a2a4a;background:#f4f6fa;margin:0;padding:16px;}',
+    '.page{max-width:1100px;margin:0 auto;}',
+    '.page-hdr{background:#1a2a4a;color:#fff;padding:14px 18px;border-radius:10px;margin-bottom:16px;}',
+    '.page-hdr h1{margin:0;font-size:16px;font-weight:700;}',
+    '.page-hdr p{margin:4px 0 0;font-size:11px;opacity:.7;}',
+    'details{background:#fff;border:1px solid #dde3ec;border-radius:10px;overflow:hidden;margin-bottom:14px;}',
+    'summary.sec-hdr{background:#f0f4fa;border-bottom:1px solid #dde3ec;padding:8px 14px;font-size:12px;font-weight:700;color:#1a2a4a;display:flex;align-items:center;gap:6px;cursor:pointer;list-style:none;user-select:none;}',
+    'summary.sec-hdr::-webkit-details-marker{display:none;}',
+    'summary.sec-hdr::before{content:"▶";font-size:9px;color:#888;transition:transform .2s;flex-shrink:0;}',
+    'details[open]>summary.sec-hdr::before{transform:rotate(90deg);}',
+    '.sec-body{padding:12px 14px;}',
+    '.grp-lbl{font-size:11px;font-weight:700;color:#888;margin:6px 0 4px;}',
+    '.chips{display:flex;flex-wrap:wrap;gap:5px;}',
+    '.chip{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;}',
+    '.chip-up{background:#6c757d;} .chip-up.has-cal{background:#4a7ab5;}',
+    '.chip-root{background:#1a2a4a;}',
+    '.chip-dn{background:#aaa;} .chip-dn.has-cal{background:#28a745;}',
+    '.legenda{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:11px;color:#555;margin-bottom:10px;}',
+    '.leg-item{display:flex;align-items:center;gap:4px;}',
+    '.leg-sq{display:inline-block;width:14px;height:14px;border-radius:3px;flex-shrink:0;}',
+    '.stats-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}',
+    '.stat-card{background:#f8fafc;border:1px solid #dde3ec;border-radius:8px;padding:7px 12px;text-align:center;min-width:80px;}',
+    '.sv{font-size:18px;font-weight:700;color:#1a2a4a;} .sl{font-size:10px;color:#888;margin-top:1px;}',
+    '.cal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;min-width:600px;}',
+    '.cal-month{background:#fff;border:1px solid #dde3ec;border-radius:7px;overflow:hidden;}',
+    '.cal-mhdr{background:#1a2a4a;color:#fff;padding:4px 8px;font-size:10px;font-weight:700;text-align:center;}',
+    '.cal-days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:5px;}',
+    '.cal-dhdr{text-align:center;font-size:8px;font-weight:700;color:#aaa;padding:1px 0;}',
+    '.cal-day{display:flex;align-items:center;justify-content:center;aspect-ratio:1;border-radius:3px;font-size:8px;font-weight:600;}',
+    '.r0{background:#eef0f4;color:#ccc;} .r1{background:#fff3cd;color:#856404;} .r2{background:#ffc107;color:#fff;}',
+    '.r3{background:#fd7e14;color:#fff;} .rhi{background:#dc3545;color:#fff;}',
+    '.today{outline:2px solid #f77f00;outline-offset:-1px;}',
+    '.rel-tbl{width:100%;border-collapse:collapse;font-size:11px;}',
+    '.rel-tbl th{background:#1a2a4a;color:#fff;padding:6px 9px;text-align:left;font-weight:700;white-space:nowrap;}',
+    '.rel-tbl td{padding:5px 9px;border-bottom:1px solid #f0f2f5;vertical-align:top;}',
+    '.rel-tbl tr:hover td{background:#f0f4ff;}',
+    '.row-root td{background:#f0f4fa;} .row-up td{background:#f8fbff;} .row-dn td{background:#fffdf0;}',
+    '.td-job{font-weight:700;white-space:nowrap;} .td-papel{min-width:120px;} .td-desc{font-size:10px;color:#555;}',
+    '.td-c{text-align:center;} .td-prox{font-size:10px;}',
+    '.r-alto{color:#dc3545;font-weight:700;} .r-med{color:#fd7e14;font-weight:700;} .r-baixo{color:#28a745;font-weight:700;}',
+    'small{font-size:10px;color:#777;}'
+  ].join('\n');
+
+  // ── Monta HTML final ─────────────────────────────────────
+  var html = '<!DOCTYPE html>\n<html lang="pt-BR">\n<head>\n' +
+    '<meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
+    '<title>An\u00e1lise de Impacto \u2014 ' + nomeUp + '</title>\n' +
+    '<style>\n' + css + '\n</style>\n' +
+    '</head>\n<body>\n<div class="page">\n' +
+    '<div class="page-hdr"><h1>&#128293; An\u00e1lise de Impacto &mdash; ' + nomeUp + '</h1>' +
+    '<p>Gerado em ' + geradoEm + ' &nbsp;&bull;&nbsp; ' + todosJobs.length + ' job(s) na cadeia</p></div>\n' +
+    secCadeia + '\n' + secFluxo + '\n' + secHeatmap + '\n' + secRel +
+    '\n</div>\n</body>\n</html>';
+
+  var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'impacto_' + nomeUp + '_' + yr + '.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+  toast('HTML exportado: impacto_' + nomeUp + '_' + yr + '.html');
 }
 
 // ============================================================
