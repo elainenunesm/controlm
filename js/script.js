@@ -2471,7 +2471,6 @@ function _fluxoParse(src, filename) {
   var curJob      = null;
   var waitCont    = false;   // aguarda linha de continuação (após '\')
   var inCrossRef  = false;   // estamos na seção CROSS REFERENCE
-  var inCondition = false;   // estamos na seção CONDITION (from-to layout fixo)
 
   // Posições de coluna fixas (1-indexed: member=col7/size8, depend=col16/size8, jobname=col25/size28)
   // Convertidas para 0-indexed (JavaScript slice)
@@ -2482,33 +2481,15 @@ function _fluxoParse(src, filename) {
   // Mapa de condições para resolver IN/OUT depois
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
-  // Arestas da seção CONDITION: { groupName: [{from, to}] }
-  var simpleCondEdges = {};
-  // Membro atual da seção CONDITION (consumidor das condições abaixo)
-  var curCondMember = null;
 
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
     var line = raw.trim();
     if (!line) continue;
 
-    // ── Detecta seção PREREQUISITE CONDITIONS (col 68 do relatório) ─────
-    // "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS" vem antes de "CONDITION"
-    // Deve ser verificado ANTES do check genérico de CROSS REFERENCE
-    if (/PREREQUISITE\s+CONDITIONS/i.test(line)) {
-      inCondition   = true;
-      inCrossRef    = false;
-      curCondMember = null;
-      curJob = null; waitCont = false;
-      continue;
-    }
-
-    // ── Detecta seção CROSS REFERENCE (IN/OUT com ODATE) ──────────────
-    // Exclui linhas com PREREQUISITE para não sobrescrever inCondition
-    if (/CROSS\s+REFERENCE/i.test(line) && !/PREREQUISITE/i.test(line)) {
-      inCrossRef    = true;
-      inCondition   = false;
-      curCondMember = null;
+    // ── Detecta seção CROSS REFERENCE ─────────────────
+    if (/CROSS\s+REFERENCE/i.test(line)) {
+      inCrossRef = true;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2517,55 +2498,11 @@ function _fluxoParse(src, filename) {
     if (line.indexOf('BY GROUP') >= 0) {
       var gm = line.match(/BY\s+GROUP\s+([A-Z0-9_\-]+)\s+GROUP/i);
       if (gm) {
-        curGroup      = gm[1].toUpperCase();
-        inCrossRef    = false;
-        inCondition   = false;
-        curCondMember = null;
+        curGroup   = gm[1].toUpperCase();
+        inCrossRef = false;
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
-      }
-      continue;
-    }
-
-    // ── Detecta linha "CONDITION" dentro da seção PREREQUISITE (cabeçalho / separador)
-    // Quando já estamos em inCondition, a linha literal "CONDITION" e "----" são apenas cabeçalho
-    if (inCondition && /^-+$/.test(line)) continue;  // separador de traços → ignora
-    if (inCondition && /^\s*CONDITION\s*$/i.test(line)) continue; // linha só com "CONDITION" → ignora
-
-    // ── Detecta seção CONDITION simples fora do PREREQUISITE (fallback) ─
-    if (!inCrossRef && !inCondition && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
-      inCondition = true;
-      curJob = null; waitCont = false;
-      continue;
-    }
-
-    // ── CONDITION: extrai pares (PRODUTOR → MEMBER) por regex ────────────
-    // Estrutura: linha do MEMBER (sem '-') define o consumidor;
-    // linhas seguintes com padrão JOBA-JOBB[-STATUS] indicam o produtor.
-    // O member fica na posição col 7 (slice 6-14), linha sem LVL numérico.
-    if (inCondition) {
-      if (/^[-\s]+$/.test(line)) continue;  // separador de traços → ignora
-      // Verifica se é linha de definição de MEMBER: não contém '-' ligando dois nomes de job
-      var condPairRx = /[A-Z][A-Z0-9]{3,13}-[A-Z][A-Z0-9]{3,13}/i;
-      if (!condPairRx.test(line)) {
-        // Tenta extrair o nome do job (consumidor) na col 7
-        var cmem = raw.length > 6 ? raw.slice(6, 14).trim().toUpperCase() : '';
-        if (cmem && /^[A-Z][A-Z0-9]{1,29}$/.test(cmem)) curCondMember = cmem;
-        continue;
-      }
-      // Linha de condição: extrai PRODUTOR-CONSUMIDOR[-STATUS] em qualquer coluna
-      if (curCondMember && curGroup) {
-        var crxLocal = /([A-Z][A-Z0-9]{3,13})-([A-Z][A-Z0-9]{3,13})(?:-(OK|CODES|STAT|\d{2}))?/gi;
-        var cmLocal;
-        while ((cmLocal = crxLocal.exec(line)) !== null) {
-          var cprod = cmLocal[1].toUpperCase();
-          // só cria aresta se produtor != consumidor
-          if (cprod !== curCondMember) {
-            if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
-            simpleCondEdges[curGroup].push({ from: cprod, to: curCondMember });
-          }
-        }
       }
       continue;
     }
@@ -2718,26 +2655,6 @@ function _fluxoParse(src, filename) {
         _fluxoAddEdge(tg, extFrom, consumer.member, parts[2] || 'OK', false, 'dependency');
       });
     }
-  });
-
-  // ── Aplica arestas da seção CONDITION simples ─────────────────────────
-  // Só cria aresta se o consumidor (ce.to) já existe no fluxo (JOB FLOW leu antes).
-  // O produtor (ce.from) recebe nó fantasma se não existir.
-  // Não duplica aresta se DEPEND ON já criou o mesmo par (dedupado por _fluxoAddEdge).
-  Object.keys(simpleCondEdges).forEach(function(g) {
-    if (!result[g]) return;
-    simpleCondEdges[g].forEach(function(ce) {
-      // Consumidor deve existir — seção CONDITION não cria jobs novos no lado TO
-      if (!result[g].jobs[ce.to]) return;
-      // Produtor pode ser externo → cria fantasma só se necessário
-      if (!result[g].jobs[ce.from]) {
-        result[g].jobs[ce.from] = {
-          id: ce.from, label: ce.from, group: g, level: 0,
-          calendar: '-', type: 'NORMAL', generatedBy: null
-        };
-      }
-      _fluxoAddEdge(result[g], ce.from, ce.to, 'OK', false, 'dependency');
-    });
   });
 
   if (Object.keys(result).length === 0) {
