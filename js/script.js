@@ -2515,11 +2515,18 @@ function _fluxoParse(src, filename) {
       if (gm) {
         curGroup    = gm[1].toUpperCase();
         inCrossRef  = false;
-        inCondition = false;
+        inCondition = false;  // sai de qualquer seção CONDITION ao entrar em novo GROUP
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
       }
+      continue;
+    }
+
+    // ── Ao encontrar LVL MEMBER, sai de qualquer seção CONDITION ──────
+    if (/^\s*LVL\s+MEMBER/i.test(raw)) {
+      inCondition = false;
+      curJob = null; waitCont = false;
       continue;
     }
 
