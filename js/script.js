@@ -804,21 +804,130 @@ function _fluxoCaminhoCompleto(jobId) {
 // IMPACTO — renderiza a página N do grafo paginado
 // ============================================================
 // ============================================================
-// FLUXO IMPACTO — layout por colunas de nível topológico
-// Cada coluna = um nível. Nodes empilhados verticalmente.
-// Setas APENAS entre conexões reais de _fluxoData (limpo).
-// Cores: azul=antecessor | azul-escuro=analisado | âmbar=dependente
+// FLUXO IMPACTO — Cytoscape + dagre (minimiza cruzamentos)
 // ============================================================
 function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
-  // ── Constantes de layout ──
-  var NODE_W    = 130;
-  var NODE_H    = 36;
-  var H_GAP     = 60;     // espaço entre colunas (para setas)
-  var V_GAP     = 12;     // gap vertical entre nodes na mesma coluna
-  var COL_PAD   = 16;     // padding top/bottom do diagrama
-  var LEFT_M    = 10;     // margem esquerda
-  var COL_STEP  = NODE_W + H_GAP;
-  var numLevels = fluxoPath.length;
+  // ── 1. Coletar nodes ──
+  var nodeInfo = {};
+  var cyEls    = [];
+  fluxoPath.forEach(function(lv) {
+    lv.jobs.forEach(function(j) {
+      nodeInfo[j.id] = { role: j.role, nivel: lv.nivel };
+      var role   = j.role;
+      var temCal = _calData && (_calData.jobs[j.id] || _calData.jobs[j.id.toUpperCase()]);
+      var bg, brd, txt, brdW;
+      if (role === 'selected')      { bg = '#1a2a4a'; brd = '#3a6fc8'; txt = '#ffffff'; brdW = 3;   }
+      else if (role === 'upstream') { bg = '#d8eaff'; brd = '#7ab3e8'; txt = '#1a4d8a'; brdW = 1.5; }
+      else                          { bg = '#fff3cd'; brd = '#f0b429'; txt = '#7a5404'; brdW = 1.5; }
+      if (temCal && role !== 'selected') brd = '#ffc107';
+      cyEls.push({
+        group: 'nodes',
+        data: { id: j.id, label: j.id, role: role, nivel: lv.nivel,
+                bg: bg, brd: brd, txt: txt, brdW: brdW, temCal: temCal ? 1 : 0 }
+      });
+    });
+  });
+
+  // ── 2. Coletar arestas reais ──
+  var edgeSeen = {};
+  if (_fluxoData) {
+    Object.keys(_fluxoData).forEach(function(gn) {
+      (_fluxoData[gn].edges || []).forEach(function(e) {
+        var f = e.from.toUpperCase(), t = e.to.toUpperCase();
+        var k = f + '\u2192' + t;
+        if (nodeInfo[f] && nodeInfo[t] && !edgeSeen[k]) {
+          edgeSeen[k] = true;
+          cyEls.push({
+            group: 'edges',
+            data: { id: k, source: f, target: t, status: e.status || '' },
+            classes: e.edgeType === 'generation' ? 'gen-edge' : 'dep-edge'
+          });
+        }
+      });
+    });
+  }
+  if (!cyEls.length) return;
+
+  // ── 3. Barra de botões ──
+  var zBar = document.createElement('div');
+  zBar.style.cssText = 'display:flex;gap:4px;justify-content:flex-end;padding:4px 4px 3px;';
+  zBar.innerHTML =
+    '<button class="cy-btn" id="cyIZ">+</button>' +
+    '<button class="cy-btn" id="cyIOZ">−</button>' +
+    '<button class="cy-btn" id="cyIF">⊡</button>';
+  outerWrapper.appendChild(zBar);
+
+  // ── 4. Container scrollável ──
+  var wrap = document.createElement('div');
+  wrap.className = 'impacto-swimlane-scroll';
+  wrap.style.height = '460px';
+  var cyDiv = document.createElement('div');
+  cyDiv.style.cssText = 'width:100%;height:100%;';
+  wrap.appendChild(cyDiv);
+  outerWrapper.appendChild(wrap);
+
+  // ── 5. Cytoscape + dagre ──
+  if (cyImpacto) { try { cyImpacto.destroy(); } catch(x) {} cyImpacto = null; }
+  cyImpacto = cytoscape({
+    container: cyDiv,
+    elements: cyEls,
+    style: [
+      {
+        selector: 'node',
+        style: {
+          'shape': 'round-rectangle',
+          'label': 'data(label)',
+          'text-valign': 'center', 'text-halign': 'center',
+          'color': 'data(txt)',
+          'font-size': '11px', 'font-weight': '700',
+          'font-family': 'Segoe UI, Arial, sans-serif',
+          'background-color': 'data(bg)',
+          'border-color': 'data(brd)',
+          'border-width': 'data(brdW)',
+          'width': 'label', 'height': 36, 'padding': '10px',
+          'text-wrap': 'wrap', 'text-max-width': '130px'
+        }
+      },
+      { selector: 'node[role = "selected"]', style: { 'height': 42, 'font-size': '12px' } },
+      { selector: 'node[temCal = 1][role != "selected"]', style: { 'border-color': '#ffc107', 'border-width': 2.5 } },
+      { selector: 'node:selected', style: { 'border-width': 4 } },
+      {
+        selector: '.dep-edge',
+        style: {
+          'width': 1.8, 'line-color': '#3a6fc8',
+          'target-arrow-color': '#3a6fc8', 'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier',
+          'label': 'data(status)', 'font-size': '9px', 'color': '#3a6fc8',
+          'text-background-color': '#fff', 'text-background-opacity': 0.9, 'text-background-padding': '2px'
+        }
+      },
+      {
+        selector: '.gen-edge',
+        style: {
+          'width': 1.5, 'line-color': '#d4910a',
+          'target-arrow-color': '#d4910a', 'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier', 'line-style': 'dashed'
+        }
+      }
+    ],
+    layout: { name: 'dagre', rankDir: 'LR', nodeSep: 50, rankSep: 90, edgeSep: 15, padding: 28 },
+    minZoom: 0.08, maxZoom: 3, wheelSensitivity: 0.3,
+    boxSelectionEnabled: false
+  });
+
+  cyImpacto.on('tap', 'node', function(evt) { currentJob = evt.target.id(); renderTudo(currentJob); });
+  cyImpacto.on('mouseover', 'node', function(e) { e.target.style('opacity', 0.72); });
+  cyImpacto.on('mouseout',  'node', function(e) { e.target.style('opacity', 1); });
+
+  setTimeout(function() {
+    cyImpacto.fit(undefined, 28);
+    var zi = document.getElementById('cyIZ');
+    var zo = document.getElementById('cyIOZ');
+    var zf = document.getElementById('cyIF');
+    if (zi) zi.onclick = function() { cyImpacto.zoom({ level: cyImpacto.zoom() * 1.25, renderedPosition: { x: cyImpacto.width()/2, y: cyImpacto.height()/2 } }); };
+    if (zo) zo.onclick = function() { cyImpacto.zoom({ level: cyImpacto.zoom() * 0.80, renderedPosition: { x: cyImpacto.width()/2, y: cyImpacto.height()/2 } }); };
+    if (zf) zf.onclick = function() { cyImpacto.fit(undefined, 28); };
+  }, 80);
 
   // ── 1. Mapear nodes por coluna (= nível) ──
   var nodeInfo = {};   // jid -> { role, li, nivel }
@@ -992,14 +1101,7 @@ function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
     inner.appendChild(box);
   });
 
-  scrollWrap.appendChild(inner);
-  outerWrapper.appendChild(scrollWrap);
 }
-  function laneHeight(cnt) {
-    if (!cnt) return 0;
-    var rows = laneRowCount(cnt);
-    return LANE_PAD * 2 + rows * NODE_H + (rows - 1) * V_GAP;
-  }
   var lH  = [0, 1, 2].map(function(l) { return laneHeight(laneSeqs[l].length); });
   var lOff = [0, lH[0], lH[0] + lH[1]];
   var totalH = lH[0] + lH[1] + lH[2];
