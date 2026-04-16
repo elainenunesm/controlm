@@ -928,9 +928,19 @@ function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
     if (zo) zo.onclick = function() { cyImpacto.zoom({ level: cyImpacto.zoom() * 0.80, renderedPosition: { x: cyImpacto.width()/2, y: cyImpacto.height()/2 } }); };
     if (zf) zf.onclick = function() { cyImpacto.fit(undefined, 28); };
   }, 80);
+}
 
-  // ── 1. Mapear nodes por coluna (= nível) ──
-  var nodeInfo = {};   // jid -> { role, li, nivel }
+
+// ============================================================
+// RENDER IMPACTO
+// ============================================================
+function renderImpacto(nome) {
+  var c = document.getElementById('cardImpacto');
+  if (!c) return;
+  c.innerHTML = '';
+  if (cyImpacto) { cyImpacto.destroy(); cyImpacto = null; }
+
+  var semDados = !nome || (!DB[nome] && !_fluxoData);
   var colNodes = [];   // colNodes[li] = [jid, ...]
   for (var ci = 0; ci < numLevels; ci++) colNodes.push([]);
   fluxoPath.forEach(function(lv, li) {
@@ -1102,6 +1112,7 @@ function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
   });
 
 }
+if (false) { // dead code — orphaned swim-lane block, to be removed
   var lH  = [0, 1, 2].map(function(l) { return laneHeight(laneSeqs[l].length); });
   var lOff = [0, lH[0], lH[0] + lH[1]];
   var totalH = lH[0] + lH[1] + lH[2];
