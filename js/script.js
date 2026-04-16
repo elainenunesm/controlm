@@ -1359,11 +1359,14 @@ function renderImpacto(nome) {
   c.appendChild(sub);
 
   // ── Cadeia de impacto ────────────────────────────────────
-  var cadeia = _impactoCadeia(nomeUp);   // downstream jobs
+  // Predecessores: maior nível = mais distante = executa primeiro
   var upstream = _impactoUpstream(nomeUp); // predecessores diretos
-  // Ordena predecessores por nível decrescente: maior nível = mais distante = executa primeiro
   var upstreamAll = _impactoUpstreamComNivel(nomeUp)
     .sort(function(a, b) { return b.nivel - a.nivel; })
+    .map(function(r) { return r.id; });
+  // Dependentes: menor nível = mais próximo = executa primeiro
+  var cadeia = _impactoCadeiaComNivel(nomeUp)
+    .sort(function(a, b) { return a.nivel - b.nivel; })
     .map(function(r) { return r.id; });
   var todosJobs = upstreamAll.concat([nomeUp]).concat(cadeia); // predecessores (ordem de execução) + raiz + downstream
 
