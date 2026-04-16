@@ -1361,7 +1361,9 @@ function renderImpacto(nome) {
   // ── Cadeia de impacto ────────────────────────────────────
   var cadeia = _impactoCadeia(nomeUp);   // downstream jobs
   var upstream = _impactoUpstream(nomeUp); // predecessores diretos
-  var todosJobs = [nomeUp].concat(cadeia); // raiz + downstream para o heatmap
+  var upstreamAll = _impactoUpstreamComNivel(nomeUp).map(function(r) { return r.id; }); // todos os predecessores (transitivos)
+  var todosJobs = upstreamAll.concat([nomeUp]).concat(cadeia); // predecessores + raiz + downstream
+  console.log('[DEBUG impacto] nomeUp:', nomeUp, '| upstreamAll:', upstreamAll, '| cadeia:', cadeia, '| todosJobs:', todosJobs);
 
   // Seção: Cadeia
   var secCadeia = document.createElement('div');
@@ -1603,10 +1605,37 @@ function renderImpacto(nome) {
       '<th>Risco</th>' +
       '</tr></thead>';
 
+    // Mapa de predecessores diretos por job: { 'JOBID': ['PRED1', 'PRED2', ...] }
+    var predMapByJob = {};
+    if (_fluxoData) {
+      Object.keys(_fluxoData).forEach(function(gn) {
+        (_fluxoData[gn].edges || []).forEach(function(e) {
+          var fromUp = e.from.toUpperCase();
+          var toUp   = e.to.toUpperCase();
+          if (!predMapByJob[toUp]) predMapByJob[toUp] = [];
+          if (predMapByJob[toUp].indexOf(fromUp) < 0) predMapByJob[toUp].push(fromUp);
+        });
+      });
+    }
+
     var tbody = document.createElement('tbody');
     todosJobs.forEach(function(jid) {
       var jdCal = _calData && (_calData.jobs[jid] || _calData.jobs[jid.toUpperCase()]);
-      var papel = jid === nomeUp ? '⭐ Raiz' : (upstream.indexOf(jid) >= 0 ? '⬆ Predecessor' : '⬇ Dependente');
+      var predsDeJid = predMapByJob[jid] || [];
+      var papel;
+      if (jid === nomeUp) {
+        papel = '&#11088; Job Analisado';
+        if (predsDeJid.length)
+          papel += '<br><small style="color:#555;font-size:10px;">Executa após: ' + predsDeJid.join(', ') + '</small>';
+      } else if (upstreamAll.indexOf(jid) >= 0) {
+        papel = '&#11014; Executa Antes';
+        if (predsDeJid.length)
+          papel += '<br><small style="color:#777;font-size:10px;">Após: ' + predsDeJid.join(', ') + '</small>';
+        else
+          papel += '<br><small style="color:#777;font-size:10px;">Início de fluxo</small>';
+      } else {
+        papel = '&#11015; Dependente';
+      }
       var execAno = '-', freq = '-', proximas = '-', riscoCls = '', riscoTxt = '-';
 
       if (jdCal) {
@@ -1633,7 +1662,7 @@ function renderImpacto(nome) {
       var tr = document.createElement('tr');
       tr.innerHTML =
         '<td style="font-weight:700;white-space:nowrap;">' + jid + '</td>' +
-        '<td style="white-space:nowrap;">' + papel + '</td>' +
+        '<td style="white-space:normal;min-width:120px;">' + papel + '</td>' +
         '<td style="font-size:11px;color:#555;">' + jobDesc + '</td>' +
         '<td style="text-align:center;">' + execAno + '</td>' +
         '<td style="white-space:nowrap;">' + freq + '</td>' +
@@ -1674,7 +1703,20 @@ function renderImpacto(nome) {
 function exportarImpactoCSV(jobId, todosJobs) {
   var yr = _calData ? _calData.year : '';
   var nomeUp = jobId.toUpperCase();
-  var upstream = _impactoUpstream(nomeUp);
+  var upstreamAllExport = _impactoUpstreamComNivel(nomeUp).map(function(r) { return r.id; });
+
+  // Mapa de predecessores diretos por job
+  var predMapExport = {};
+  if (_fluxoData) {
+    Object.keys(_fluxoData).forEach(function(gn) {
+      (_fluxoData[gn].edges || []).forEach(function(e) {
+        var fromUp = e.from.toUpperCase();
+        var toUp   = e.to.toUpperCase();
+        if (!predMapExport[toUp]) predMapExport[toUp] = [];
+        if (predMapExport[toUp].indexOf(fromUp) < 0) predMapExport[toUp].push(fromUp);
+      });
+    });
+  }
 
   // ── Aba 1: Relatório por Job ─────────────────────────────
   var dadosJobs = [
@@ -1682,7 +1724,15 @@ function exportarImpactoCSV(jobId, todosJobs) {
   ];
 
   todosJobs.forEach(function(jid) {
-    var papel = jid === nomeUp ? 'Raiz' : (upstream.indexOf(jid) >= 0 ? 'Predecessor' : 'Dependente');
+    var predsDeJid = predMapExport[jid] || [];
+    var papel;
+    if (jid === nomeUp) {
+      papel = 'Job Analisado' + (predsDeJid.length ? ' | Executa após: ' + predsDeJid.join(', ') : '');
+    } else if (upstreamAllExport.indexOf(jid) >= 0) {
+      papel = 'Executa Antes' + (predsDeJid.length ? ' | Após: ' + predsDeJid.join(', ') : ' | Início de fluxo');
+    } else {
+      papel = 'Dependente';
+    }
     var execAno = '', freq = '', diasUteis = '', fds = '', mesesAt = '', proximas = '', risco = '';
     var jobDesc = '';
     if (_fluxoData) {
