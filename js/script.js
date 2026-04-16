@@ -804,34 +804,197 @@ function _fluxoCaminhoCompleto(jobId) {
 // IMPACTO — renderiza a página N do grafo paginado
 // ============================================================
 // ============================================================
-// FLUXO IMPACTO — swim-lane com fluxo horizontal e quebra de linha
-// Nodes fluem →→→ dentro de cada lane, quebrando para a linha
-// seguinte com seta de continuação (como leitura de texto).
+// FLUXO IMPACTO — layout por colunas de nível topológico
+// Cada coluna = um nível. Nodes empilhados verticalmente.
+// Setas APENAS entre conexões reais de _fluxoData (limpo).
+// Cores: azul=antecessor | azul-escuro=analisado | âmbar=dependente
 // ============================================================
 function _renderImpactoFluxoSVG(outerWrapper, fluxoPath) {
   // ── Constantes de layout ──
-  var NODE_W    = 128;
+  var NODE_W    = 130;
   var NODE_H    = 36;
-  var H_GAP     = 38;     // gap horizontal entre nodes
-  var V_GAP     = 54;     // gap vertical entre linhas dentro da lane (para seta)
-  var LANE_LBL  = 86;     // largura do rótulo da lane
-  var LANE_PAD  = 12;     // padding interno top/bottom da lane
-  var PER_ROW   = 6;      // máx nodes por linha
-  var NODE_STEP = NODE_W + H_GAP;
+  var H_GAP     = 60;     // espaço entre colunas (para setas)
+  var V_GAP     = 12;     // gap vertical entre nodes na mesma coluna
+  var COL_PAD   = 16;     // padding top/bottom do diagrama
+  var LEFT_M    = 10;     // margem esquerda
+  var COL_STEP  = NODE_W + H_GAP;
+  var numLevels = fluxoPath.length;
 
-  // ── 1. Coletar nodes por lane em ordem de nível ──
-  var laneSeqs = [[], [], []]; // 0=upstream 1=selected 2=downstream
-  var nodeInfo = {};
-  fluxoPath.forEach(function(lv) {
+  // ── 1. Mapear nodes por coluna (= nível) ──
+  var nodeInfo = {};   // jid -> { role, li, nivel }
+  var colNodes = [];   // colNodes[li] = [jid, ...]
+  for (var ci = 0; ci < numLevels; ci++) colNodes.push([]);
+  fluxoPath.forEach(function(lv, li) {
     lv.jobs.forEach(function(j) {
-      var ln = j.role === 'upstream' ? 0 : j.role === 'selected' ? 1 : 2;
-      laneSeqs[ln].push(j.id);
-      nodeInfo[j.id] = { role: j.role, lane: ln, lvl: lv.nivel };
+      nodeInfo[j.id] = { role: j.role, li: li, nivel: lv.nivel };
+      colNodes[li].push(j.id);
     });
   });
 
-  // ── 2. Dimensões de cada lane ──
-  function laneRowCount(cnt) { return cnt === 0 ? 0 : Math.ceil(cnt / PER_ROW); }
+  // ── 2. Dimensões totais ──
+  var maxPerCol = 0;
+  colNodes.forEach(function(col) { maxPerCol = Math.max(maxPerCol, col.length); });
+  var totalH = COL_PAD * 2 + maxPerCol * NODE_H + Math.max(0, maxPerCol - 1) * V_GAP;
+  var totalW = LEFT_M + numLevels * COL_STEP - H_GAP + 56;
+
+  // ── 3. Posições: cada node centrado verticalmente na sua coluna ──
+  var posMap = {};
+  colNodes.forEach(function(col, li) {
+    var colH   = col.length * NODE_H + Math.max(0, col.length - 1) * V_GAP;
+    var startY = COL_PAD + (totalH - COL_PAD * 2 - colH) / 2;
+    col.forEach(function(jid, ni) {
+      var x = LEFT_M + li * COL_STEP;
+      var y = startY + ni * (NODE_H + V_GAP);
+      posMap[jid] = { x: x, y: y, cx: x + NODE_W / 2, cy: y + NODE_H / 2 };
+    });
+  });
+
+  // ── 4. Coletar arestas reais ──
+  var subEdges = [], edgeSeen = {};
+  if (_fluxoData) {
+    Object.keys(_fluxoData).forEach(function(gn) {
+      (_fluxoData[gn].edges || []).forEach(function(e) {
+        var f = e.from.toUpperCase(), t = e.to.toUpperCase();
+        var k = f + '\u2192' + t;
+        if (posMap[f] && posMap[t] && !edgeSeen[k]) {
+          edgeSeen[k] = true;
+          subEdges.push({ from: f, to: t, status: e.status, edgeType: e.edgeType });
+        }
+      });
+    });
+  }
+
+  // ── 5. DOM container ──
+  var scrollWrap = document.createElement('div');
+  scrollWrap.className = 'impacto-swimlane-scroll';
+
+  var inner = document.createElement('div');
+  inner.style.cssText = 'position:relative;width:' + totalW + 'px;height:' + totalH + 'px;' +
+    'font-family:Segoe UI,Arial,sans-serif;background:#f7f9fc;border-radius:8px;';
+
+  // ── 6. Faixas de coluna com fundo sutil e rótulo de nível ──
+  colNodes.forEach(function(col, li) {
+    if (!col.length) return;
+    var roles = col.map(function(jid) { return nodeInfo[jid].role; });
+    var hasSel = roles.indexOf('selected') >= 0;
+    var hasUp  = roles.indexOf('upstream') >= 0;
+    var bg  = hasSel ? 'rgba(26,42,74,0.06)' : hasUp ? 'rgba(58,111,200,0.05)' : 'rgba(240,180,41,0.07)';
+    var brd = hasSel ? '#c5d4ec' : hasUp ? '#c5d9f5' : '#f0dea0';
+
+    var colBand = document.createElement('div');
+    colBand.style.cssText =
+      'position:absolute;left:' + (LEFT_M + li * COL_STEP - 8) + 'px;top:6px;' +
+      'width:' + (NODE_W + 16) + 'px;height:' + (totalH - 12) + 'px;' +
+      'background:' + bg + ';border:1px solid ' + brd + ';border-radius:8px;box-sizing:border-box;';
+    inner.appendChild(colBand);
+
+    var hdr = document.createElement('div');
+    hdr.style.cssText =
+      'position:absolute;left:' + (LEFT_M + li * COL_STEP + NODE_W / 2 - 14) + 'px;top:8px;' +
+      'font-size:9px;font-weight:700;color:#b0bad0;letter-spacing:0.5px;pointer-events:none;';
+    hdr.textContent = 'N' + fluxoPath[li].nivel;
+    inner.appendChild(hdr);
+  });
+
+  // ── 7. SVG overlay — setas ──
+  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('style', 'position:absolute;left:0;top:0;pointer-events:none;overflow:visible;');
+  svg.setAttribute('width', totalW);
+  svg.setAttribute('height', totalH);
+
+  var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  function mkMark(id, color) {
+    var mk = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    mk.setAttribute('id', id);
+    mk.setAttribute('markerWidth', '7'); mk.setAttribute('markerHeight', '7');
+    mk.setAttribute('refX', '6');       mk.setAttribute('refY', '3');
+    mk.setAttribute('orient', 'auto');
+    var p = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    p.setAttribute('points', '0 0,7 3,0 6'); p.setAttribute('fill', color);
+    mk.appendChild(p); defs.appendChild(mk);
+  }
+  mkMark('mDep', '#3a6fc8');
+  mkMark('mGen', '#d4910a');
+  svg.appendChild(defs);
+
+  // ── 8. Desenhar setas ──
+  subEdges.forEach(function(e) {
+    var s = posMap[e.from], t = posMap[e.to];
+    if (!s || !t) return;
+    var isGen  = e.edgeType === 'generation';
+    var color  = isGen ? '#d4910a' : '#3a6fc8';
+    var markId = isGen ? 'mGen' : 'mDep';
+    var x1 = s.x + NODE_W + 2, y1 = s.cy;
+    var x2 = t.x - 3,          y2 = t.cy;
+    var cpX = (x1 + x2) / 2;
+
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M ' + x1 + ' ' + y1 +
+      ' C ' + cpX + ' ' + y1 + ',' + cpX + ' ' + y2 + ',' + x2 + ' ' + y2);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', isGen ? '1.5' : '1.8');
+    path.setAttribute('marker-end', 'url(#' + markId + ')');
+    if (isGen) path.setAttribute('stroke-dasharray', '5 3');
+    svg.appendChild(path);
+
+    if (e.status) {
+      var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      var rw = e.status.length * 5.5 + 8;
+      var bgR = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bgR.setAttribute('x', mx - rw / 2); bgR.setAttribute('y', my - 9);
+      bgR.setAttribute('width', rw);      bgR.setAttribute('height', 12);
+      bgR.setAttribute('rx', '3');
+      bgR.setAttribute('fill', '#f7f9fc'); bgR.setAttribute('opacity', '0.95');
+      svg.appendChild(bgR);
+      var lt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      lt.setAttribute('x', mx); lt.setAttribute('y', my + 1);
+      lt.setAttribute('font-size', '9'); lt.setAttribute('fill', color);
+      lt.setAttribute('text-anchor', 'middle'); lt.setAttribute('font-weight', '600');
+      lt.setAttribute('font-family', 'Segoe UI,Arial,sans-serif');
+      lt.textContent = e.status;
+      svg.appendChild(lt);
+    }
+  });
+  inner.appendChild(svg);
+
+  // ── 9. Boxes dos nodes ──
+  Object.keys(posMap).forEach(function(jid) {
+    var pos  = posMap[jid];
+    var info = nodeInfo[jid];
+    var temCal = _calData && (_calData.jobs[jid] || _calData.jobs[jid.toUpperCase()]);
+    var bgC, brdC, txtC, brdW = 1.5, shadow = '';
+    if (info.role === 'selected') {
+      bgC = '#1a2a4a'; brdC = '#3a6fc8'; txtC = '#fff'; brdW = 2.5;
+      shadow = '0 2px 10px rgba(58,111,200,.35)';
+    } else if (info.role === 'upstream') {
+      bgC = '#d8eaff'; brdC = '#7ab3e8'; txtC = '#1a4d8a';
+    } else {
+      bgC = '#fff3cd'; brdC = '#f0b429'; txtC = '#7a5404';
+    }
+    if (temCal && info.role !== 'selected') brdC = '#ffc107';
+
+    var box = document.createElement('div');
+    box.style.cssText =
+      'position:absolute;left:' + pos.x + 'px;top:' + pos.y + 'px;' +
+      'width:' + NODE_W + 'px;height:' + NODE_H + 'px;border-radius:7px;' +
+      'display:flex;align-items:center;justify-content:center;text-align:center;' +
+      'font-size:11px;font-weight:700;font-family:Segoe UI,Arial,sans-serif;' +
+      'background:' + bgC + ';border:' + brdW + 'px solid ' + brdC + ';' +
+      (shadow ? 'box-shadow:' + shadow + ';' : '') +
+      'cursor:pointer;user-select:none;overflow:hidden;padding:0 7px;box-sizing:border-box;' +
+      'color:' + txtC + ';transition:opacity .13s,transform .1s;';
+    box.textContent = jid;
+    box.title = jid + (temCal ? ' — tem calendário' : '') + ' | Nível ' + info.nivel;
+    box.onmouseenter = function() { box.style.opacity = '0.75'; box.style.transform = 'translateY(-1px)'; };
+    box.onmouseleave = function() { box.style.opacity = '';     box.style.transform = ''; };
+    box.onclick = (function(id) { return function() { currentJob = id; renderTudo(id); }; })(jid);
+    inner.appendChild(box);
+  });
+
+  scrollWrap.appendChild(inner);
+  outerWrapper.appendChild(scrollWrap);
+}
   function laneHeight(cnt) {
     if (!cnt) return 0;
     var rows = laneRowCount(cnt);
