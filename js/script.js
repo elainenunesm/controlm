@@ -2482,10 +2482,8 @@ function _fluxoParse(src, filename) {
   // Mapa de condições para resolver IN/OUT depois
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
-  // Arestas da seção CONDITION: { groupName: [{from, to}] }
+  // Arestas simples da seção CONDITION: { groupName: [{from, to}] }
   var simpleCondEdges = {};
-  // Membro atual da seção CONDITION (consumidor das condições abaixo)
-  var curCondMember = null;
 
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
@@ -2496,9 +2494,8 @@ function _fluxoParse(src, filename) {
     // "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS" vem antes de "CONDITION"
     // Deve ser verificado ANTES do check genérico de CROSS REFERENCE
     if (/PREREQUISITE\s+CONDITIONS/i.test(line)) {
-      inCondition   = true;
-      inCrossRef    = false;
-      curCondMember = null;
+      inCondition = true;
+      inCrossRef  = false;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2506,9 +2503,8 @@ function _fluxoParse(src, filename) {
     // ── Detecta seção CROSS REFERENCE (IN/OUT com ODATE) ──────────────
     // Exclui linhas com PREREQUISITE para não sobrescrever inCondition
     if (/CROSS\s+REFERENCE/i.test(line) && !/PREREQUISITE/i.test(line)) {
-      inCrossRef    = true;
-      inCondition   = false;
-      curCondMember = null;
+      inCrossRef  = true;
+      inCondition = false;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2517,10 +2513,9 @@ function _fluxoParse(src, filename) {
     if (line.indexOf('BY GROUP') >= 0) {
       var gm = line.match(/BY\s+GROUP\s+([A-Z0-9_\-]+)\s+GROUP/i);
       if (gm) {
-        curGroup      = gm[1].toUpperCase();
-        inCrossRef    = false;
-        inCondition   = false;
-        curCondMember = null;
+        curGroup    = gm[1].toUpperCase();
+        inCrossRef  = false;
+        inCondition = false;
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
@@ -2540,32 +2535,16 @@ function _fluxoParse(src, filename) {
       continue;
     }
 
-    // ── CONDITION: extrai pares (PRODUTOR → MEMBER) por regex ────────────
-    // Estrutura: linha do MEMBER (sem '-') define o consumidor;
-    // linhas seguintes com padrão JOBA-JOBB[-STATUS] indicam o produtor.
-    // O member fica na posição col 7 (slice 6-14), linha sem LVL numérico.
+    // ── CONDITION simples: extrai pares FROM → TO pelo layout fixo ──────
     if (inCondition) {
-      if (/^[-\s]+$/.test(line)) continue;  // separador de traços → ignora
-      // Verifica se é linha de definição de MEMBER: não contém '-' ligando dois nomes de job
-      var condPairRx = /[A-Z][A-Z0-9]{3,13}-[A-Z][A-Z0-9]{3,13}/i;
-      if (!condPairRx.test(line)) {
-        // Tenta extrair o nome do job (consumidor) na col 7
-        var cmem = raw.length > 6 ? raw.slice(6, 14).trim().toUpperCase() : '';
-        if (cmem && /^[A-Z][A-Z0-9]{1,29}$/.test(cmem)) curCondMember = cmem;
-        continue;
-      }
-      // Linha de condição: extrai PRODUTOR-CONSUMIDOR[-STATUS] em qualquer coluna
-      if (curCondMember && curGroup) {
-        var crxLocal = /([A-Z][A-Z0-9]{3,13})-([A-Z][A-Z0-9]{3,13})(?:-(OK|CODES|STAT|\d{2}))?/gi;
-        var cmLocal;
-        while ((cmLocal = crxLocal.exec(line)) !== null) {
-          var cprod = cmLocal[1].toUpperCase();
-          // só cria aresta se produtor != consumidor
-          if (cprod !== curCondMember) {
-            if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
-            simpleCondEdges[curGroup].push({ from: cprod, to: curCondMember });
-          }
-        }
+      if (/^[-\s]+$/.test(line)) continue;  // linha separadora de traços
+      var cfrom = raw.length > 8  ? raw.slice(1, 9).trim().toUpperCase()  : '';
+      var csep  = raw.length > 9  ? raw[9]                                : '';
+      var cto   = raw.length > 17 ? raw.slice(10, 18).trim().toUpperCase() : '';
+      if (cfrom && csep === '-' && cto &&
+          /^[A-Z][A-Z0-9]{1,29}$/.test(cfrom) && /^[A-Z][A-Z0-9]{1,29}$/.test(cto) && curGroup) {
+        if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
+        simpleCondEdges[curGroup].push({ from: cfrom, to: cto });
       }
       continue;
     }
@@ -2721,15 +2700,10 @@ function _fluxoParse(src, filename) {
   });
 
   // ── Aplica arestas da seção CONDITION simples ─────────────────────────
-  // Só cria aresta se o consumidor (ce.to) já existe no fluxo (JOB FLOW leu antes).
-  // O produtor (ce.from) recebe nó fantasma se não existir.
-  // Não duplica aresta se DEPEND ON já criou o mesmo par (dedupado por _fluxoAddEdge).
+  // Cria aresta FROM→TO para cada par coletado; cria nó fantasma se FROM não existe
   Object.keys(simpleCondEdges).forEach(function(g) {
     if (!result[g]) return;
     simpleCondEdges[g].forEach(function(ce) {
-      // Consumidor deve existir — seção CONDITION não cria jobs novos no lado TO
-      if (!result[g].jobs[ce.to]) return;
-      // Produtor pode ser externo → cria fantasma só se necessário
       if (!result[g].jobs[ce.from]) {
         result[g].jobs[ce.from] = {
           id: ce.from, label: ce.from, group: g, level: 0,
