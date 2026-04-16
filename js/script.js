@@ -2482,14 +2482,28 @@ function _fluxoParse(src, filename) {
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
 
+  // PREREQUISITE CONDITIONS: rastreia jobs que não têm DEPEND ON para receber dependência do CONDITION
+  var inPrereqCond  = false;  // estamos na seção CROSS REFERENCE LIST - PREREQUISITE CONDITIONS
+  var prereqEdges   = [];     // [{producer, member}] — aplicados pós-loop
+
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
     var line = raw.trim();
     if (!line) continue;
 
-    // ── Detecta seção CROSS REFERENCE ─────────────────
+    // ── Detecta seção PREREQUISITE CONDITIONS (tem precedência sobre CROSS REFERENCE) ─
+    // Formato: "CROSS REFERENCE LIST - PREREQUISITE CONDITIONS"
+    if (/PREREQUISITE\s+CONDITION/i.test(line) || /CROSS\s+REFERENCE\s+LIST/i.test(line)) {
+      inPrereqCond = true;
+      inCrossRef   = false;
+      curJob = null; waitCont = false;
+      continue;
+    }
+
+    // ── Detecta seção CROSS REFERENCE (IN/OUT) ────────────────────
     if (/CROSS\s+REFERENCE/i.test(line)) {
-      inCrossRef = true;
+      inCrossRef   = true;
+      inPrereqCond = false;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2524,6 +2538,29 @@ function _fluxoParse(src, filename) {
         if (inout === 'OUT') condMap[condKey].out.push({ group: crGroup, member: crMember });
         else                 condMap[condKey].inp.push({ group: crGroup, member: crMember });
       }
+      continue;
+    }
+
+    // ── PREREQUISITE CONDITIONS: processa linhas de condição ──────
+    // Formato:  CONDITION_NAME           MEMBER
+    // Ex:       SSSSCXX2-SSSSCXX1        SSSSCXX1
+    // Produtor = primeira parte da condição (antes do primeiro '-')
+    // Consumidor = MEMBER (último token da linha)
+    if (inPrereqCond) {
+      // Ignora cabeçalhos e separadores
+      if (/^\s*CONDITION\s+/i.test(raw)) continue;
+      if (/^[=\-─]+$/.test(line))        continue;
+      // Linha de dado: "NOME-NOME   ...   MEMBER"
+      var pcTokens = line.split(/\s+/).filter(function(t) { return t.length > 0; });
+      if (pcTokens.length < 2) continue;
+      var pcCond   = pcTokens[0].toUpperCase();
+      var pcMember = pcTokens[pcTokens.length - 1].toUpperCase();
+      var pcDash   = pcCond.indexOf('-');
+      if (pcDash < 0) continue;
+      var pcProd   = pcCond.slice(0, pcDash);
+      if (!/^[A-Z][A-Z0-9]{2,13}$/.test(pcProd))   continue;
+      if (!/^[A-Z][A-Z0-9]{2,13}$/.test(pcMember)) continue;
+      prereqEdges.push({ producer: pcProd, member: pcMember });
       continue;
     }
 
@@ -2655,6 +2692,35 @@ function _fluxoParse(src, filename) {
         _fluxoAddEdge(tg, extFrom, consumer.member, parts[2] || 'OK', false, 'dependency');
       });
     }
+  });
+
+  // ── Resolve PREREQUISITE CONDITIONS ──────────────────────────
+  // Para cada par (producer, member): só cria aresta se o member não tiver DEPEND ON explícito
+  prereqEdges.forEach(function(pe) {
+    var memberName   = pe.member;
+    var producerName = pe.producer;
+    // Encontra o grupo do member (busca em todos os grupos)
+    var foundGroup = null;
+    var foundGroupName = null;
+    Object.keys(result).forEach(function(g) {
+      if (result[g].jobs[memberName]) { foundGroup = result[g]; foundGroupName = g; }
+    });
+    // Se não encontrou, usa o último grupo parseado
+    if (!foundGroup && curGroup && result[curGroup]) {
+      foundGroup = result[curGroup]; foundGroupName = curGroup;
+    }
+    if (!foundGroup) return;
+    // Só aplica se o member não tem DEPEND ON explícito no JOB FLOW
+    // (usa hasDepOn que é rastreado durante o parse — mas nesta versão simples
+    //  aplica sempre que não há aresta já existente com este member como destino)
+    var jaTemDep = foundGroup.edges.some(function(e) { return e.to === memberName; });
+    if (jaTemDep) return;
+    // Cria produtor se não existe
+    if (!foundGroup.jobs[producerName]) {
+      foundGroup.jobs[producerName] = { id: producerName, label: producerName,
+        group: foundGroupName, level: 0, calendar: '-', type: 'NORMAL', generatedBy: null };
+    }
+    _fluxoAddEdge(foundGroup, producerName, memberName, 'OK', false, 'dependency');
   });
 
   if (Object.keys(result).length === 0) {
