@@ -30,6 +30,7 @@
     <div class="tab active" onclick="mostrarTab('investigacao', this)">&#128269; Investigação</div>
     <div class="tab" onclick="mostrarTab('fluxo', this)">&#128202; Fluxo de Execução</div>
     <div class="tab" onclick="mostrarTab('calendario', this)">&#128197; Calendário</div>
+    <div class="tab" onclick="mostrarTab('dependencias', this)">&#128279; Dependências</div>
     <div class="tab" onclick="mostrarTab('impacto', this)">&#9889; Análise de Impacto</div>
   </div>
 
@@ -80,26 +81,22 @@
           <span class="tag" id="tagFluxo"></span>
         </div>
 
-        <!-- Toolbar de importação TXT -->
+        <!-- Toolbar de importação TXT + Legenda (linha única) -->
         <div class="fluxo-toolbar">
-          <button class="btn btn-orange" onclick="fluxoImportar()">
-            &#128194; Importar Fluxo TXT
-          </button>
-          <span id="fluxoFileLabel"></span>
+          <button class="btn btn-orange" onclick="fluxoImportar()">&#128194; Importar TXT</button>
           <button id="fluxoPlanBtn" class="btn btn-secondary" onclick="fluxoTogglePlan()" style="display:none">&#8856; Ocultar PLAN</button>
-          <button id="fluxoListaBtn" class="btn btn-secondary" onclick="fluxoToggleView()" style="display:none">&#128203; Ver Lista</button>
-          <button id="fluxoLimparBtn" class="btn btn-secondary" onclick="fluxoLimpar()" style="display:none">&#10005; Limpar Fluxo</button>
+          <button id="fluxoListaBtn" class="btn btn-secondary" onclick="fluxoToggleView()" style="display:none">&#128203; Lista</button>
+          <button id="fluxoLimparBtn" class="btn btn-secondary" onclick="fluxoLimpar()" style="display:none">&#10005; Limpar</button>
+          <span id="fluxoFileLabel"></span>
+          <span class="fluxo-toolbar-sep"></span>
+          <span class="legend-block"><span class="legend-sq normal"></span> Normal</span>
+          <span class="legend-block"><span class="legend-sq gerador" style="clip-path:none;border-radius:3px;background:#d4910a;"></span> PLAN*</span>
+          <span class="legend-block"><span class="legend-sq gerado"></span> Gerado</span>
+          <span class="legend-block" style="color:#7a9dcc;font-weight:700;">&#8594; Dep.</span>
+          <span class="legend-block" style="color:#d4910a;font-weight:700;">&#8674; Geração</span>
         </div>
         <!-- Filtro de grupos (preenchido via JS após import) -->
         <div id="fluxoGroupFilter" class="fluxo-group-filter"></div>
-        <!-- Legenda de tipos de nó -->
-        <div class="fluxo-legend">
-          <span class="legend-block"><span class="legend-sq normal"></span> Job Normal</span>
-          <span class="legend-block"><span class="legend-sq gerador" style="clip-path:none;border-radius:3px;background:#d4910a;"></span> Gerador (PLAN*)</span>
-          <span class="legend-block"><span class="legend-sq gerado"></span> Gerado pelo PLAN</span>
-          <span style="color:#7a9dcc;font-weight:700;">&#8594; Dependência</span>
-          <span style="color:#d4910a;font-weight:700;">&#8674; Geração (dashed)</span>
-        </div>
         <!-- Input invisivel -->
         <input type="file" id="fluxoFileInput" accept=".txt,.lst" style="display:none" onchange="fluxoOnFile(event)" />
 
@@ -145,7 +142,16 @@
           </select>
         </div>
         <div id="cal-content"></div>
-        <input type="file" id="calFileInput" accept=".txt,.cal" style="display:none" onchange="calOnFile(event)" />
+        <input type="file" id="calFileInput" accept=".txt,.cal" multiple style="display:none" onchange="calOnFile(event)" />
+      </div>
+
+      <!-- ── Dependências ── -->
+      <div class="panel" id="panel-dependencias">
+        <div class="section-title">
+          Dependências e Criticidade
+          <span class="tag" id="tagDependencias"></span>
+        </div>
+        <div id="cardDependencias"></div>
       </div>
 
       <!-- ── Impacto ── -->
