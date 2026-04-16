@@ -2557,8 +2557,8 @@ function _fluxoParse(src, filename) {
         dependStr = raw.slice(colDepend, depEnd).replace(/\\\s*$/, '').trim();
       }
 
-      // DESCRIPTION: de colDesc até o fim
-      var desc = (colDesc >= 0 && colDesc < raw.length) ? raw.slice(colDesc).trim() : '';
+      // DESCRIPTION: col 25, tamanho 28 → slice(24, 52)
+      var desc = (colDesc < raw.length) ? raw.slice(colDesc, colDesc + 28).trim() : '';
 
     } else {
       // Estratégia B: regex simples  LVL MEMBER  (restante é DEPEND ON + DESCRIPTION)
