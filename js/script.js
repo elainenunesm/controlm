@@ -2462,11 +2462,11 @@ function _fluxoParse(src, filename) {
   var waitCont    = false;   // aguarda linha de continuação (após '\')
   var inCrossRef  = false;   // estamos na seção CROSS REFERENCE
 
-  // Posições de coluna detectadas no cabeçalho "LVL MEMBER DEPEND ON DESCRIPTION"
-  // -1 = ainda não detectado neste grupo
-  var colMember = -1;
-  var colDepend = -1;
-  var colDesc   = -1;
+  // Posições de coluna fixas (1-indexed: member=col7/size8, depend=col16/size8, jobname=col25/size28)
+  // Convertidas para 0-indexed (JavaScript slice)
+  var colMember = 6;   // col 7  (size 8) → slice(6, 14)
+  var colDepend = 15;  // col 16 (size 8) → slice(15, 23)
+  var colDesc   = 24;  // col 25 (size 28) → slice(24, 52)
 
   // Mapa de condições para resolver IN/OUT depois
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
@@ -2490,7 +2490,7 @@ function _fluxoParse(src, filename) {
       if (gm) {
         curGroup   = gm[1].toUpperCase();
         inCrossRef = false;
-        colMember = colDepend = colDesc = -1;  // reset de colunas para novo grupo
+        colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
       }
@@ -2519,13 +2519,8 @@ function _fluxoParse(src, filename) {
 
     if (!curGroup) continue;
 
-    // ── Detecta cabeçalho "LVL  MEMBER  DEPEND ON  DESCRIPTION" ──
-    // Captura a posição exata de cada coluna para usar nas linhas seguintes
+    // ── Linha de cabeçalho "LVL MEMBER DEPEND ON..." → ignorar (colunas são fixas) ──
     if (/^\s*LVL\s+MEMBER/i.test(raw)) {
-      var hup   = raw.toUpperCase();
-      colMember = hup.indexOf('MEMBER');
-      colDepend = hup.indexOf('DEPEND');
-      colDesc   = hup.indexOf('DESCRIPTION');
       curJob = null; waitCont = false;
       continue;
     }
@@ -2533,9 +2528,7 @@ function _fluxoParse(src, filename) {
     // ── Linha de continuação (após '\') ───────────────
     // Contém apenas mais condições na coluna DEPEND ON
     if (waitCont) {
-      var depArea = (colDepend >= 0)
-        ? raw.slice(colDepend, colDesc > colDepend ? colDesc : raw.length)
-        : raw;
+      var depArea = raw.slice(colDepend, colDesc > colDepend ? colDesc : raw.length);
       _fluxoExtractDeps(depArea, curJob, result[curGroup]);
       waitCont = raw.trimEnd().slice(-1) === '\\';
       continue;
