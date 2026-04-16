@@ -2482,6 +2482,11 @@ function _fluxoParse(src, filename) {
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
 
+  // Rastreia quais jobs têm DEPEND ON explícito no JOB FLOW
+  // (condMap/CROSS REFERENCE só é usado como fallback quando DEPEND ON está ausente)
+  // Chave: 'GROUP|MEMBER'
+  var hasDepOn = {};
+
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
     var line = raw.trim();
@@ -2620,7 +2625,10 @@ function _fluxoParse(src, filename) {
     }
 
     // Extrai dependências da string DEPEND ON e verifica continuação
-    if (dependStr) _fluxoExtractDeps(dependStr, curJob, result[curGroup]);
+    if (dependStr) {
+      _fluxoExtractDeps(dependStr, curJob, result[curGroup]);
+      hasDepOn[curGroup + '|' + member] = true;  // tem DEPEND ON explícito
+    }
     waitCont = raw.trimEnd().slice(-1) === '\\';
   }
 
@@ -2633,6 +2641,9 @@ function _fluxoParse(src, filename) {
         // Encontra o grupo certo para cada membro
         var prodGroup  = producer.group;
         var consGroup  = consumer.group;
+        // CONDITION (CROSS REFERENCE) só como fallback:
+        // se o consumidor já tem DEPEND ON explícito no JOB FLOW, ignora
+        if (hasDepOn[consGroup + '|' + consumer.member]) return;
         // Se o grupo existe no resultado, adiciona a aresta lá
         var targetGroup = result[consGroup] || result[prodGroup] || result[Object.keys(result)[0]];
         if (!targetGroup) return;
@@ -2642,11 +2653,13 @@ function _fluxoParse(src, filename) {
       });
     });
     // Se tem só IN sem OUT correspondente: dependência externa (cria nó-fantôma)
+    // Também só como fallback: ignora se consumidor tem DEPEND ON explícito
     if (cond.out.length === 0 && cond.inp.length > 0) {
       var parts    = condKey.split('-');
       var extFrom  = parts[0];
       var extTo    = parts[1] || '';
       cond.inp.forEach(function(consumer) {
+        if (hasDepOn[consumer.group + '|' + consumer.member]) return;
         var tg = result[consumer.group] || result[Object.keys(result)[0]];
         if (!tg) return;
         if (!tg.jobs[extFrom]) {
