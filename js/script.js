@@ -2470,9 +2470,7 @@ function _fluxoParse(src, filename) {
   var curGroup    = null;
   var curJob      = null;
   var waitCont    = false;   // aguarda linha de continuação (após '\')
-  var inCrossRef    = false;   // estamos na seção CROSS REFERENCE
-  var inCondition   = false;   // estamos na seção CONDITION
-  var curCondMember = null;    // MEMBER (consumidor) da linha CONDITION atual
+  var inCrossRef  = false;   // estamos na seção CROSS REFERENCE
 
   // Posições de coluna fixas (1-indexed: member=col7/size8, depend=col16/size8, jobname=col25/size28)
   // Convertidas para 0-indexed (JavaScript slice)
@@ -2483,52 +2481,15 @@ function _fluxoParse(src, filename) {
   // Mapa de condições para resolver IN/OUT depois
   // condMap[condKey] = { out: [{group,member}], inp: [{group,member}] }
   var condMap = {};
-  // Pares FROM→TO coletados da seção PREREQUISITE CONDITIONS
-  var simpleCondEdges = {};
 
   for (var i = 0; i < lines.length; i++) {
     var raw  = lines[i];
     var line = raw.trim();
     if (!line) continue;
 
-    // ── Detecta linha "CONDITION MEMBERNAME" ──────────
-    // Confirma com look-ahead: só entra em modo CONDITION se a próxima linha
-    // não-vazia for uma linha de separadores (traços ASCII ou Unicode).
-    // Isso evita falsos positivos com descricões de jobs que contenham a palavra CONDITION.
-    if (!inCrossRef && !inCondition && curGroup &&
-        /^\s*CONDITION\s+[A-Z]/i.test(line) && !/\bODATE\b/i.test(line)) {
-      var nextNE = '';
-      for (var ni = i + 1; ni < lines.length; ni++) {
-        nextNE = lines[ni].trim();
-        if (nextNE) break;
-      }
-      if (/^[-\u2500\u2501\u2014\u2013=]+$/.test(nextNE)) {
-        var cmHdr = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
-        curCondMember = cmHdr ? cmHdr[1].toUpperCase() : null;
-        inCondition   = true;
-        curJob = null; waitCont = false;
-      }
-      continue;
-    }
-    // Dentro de inCondition: nova sub-seção CONDITION com novo MEMBER (também com look-ahead)
-    if (inCondition && /^\s*CONDITION\s+[A-Z]/i.test(line) && !/\bODATE\b/i.test(line)) {
-      var nextNE2 = '';
-      for (var ni2 = i + 1; ni2 < lines.length; ni2++) {
-        nextNE2 = lines[ni2].trim();
-        if (nextNE2) break;
-      }
-      if (/^[-\u2500\u2501\u2014\u2013=]+$/.test(nextNE2)) {
-        var cmHdr2 = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
-        curCondMember = cmHdr2 ? cmHdr2[1].toUpperCase() : curCondMember;
-      }
-      continue;
-    }
-
-    // ── Detecta seção CROSS REFERENCE (IN/OUT com ODATE) ──
-    if (/CROSS\s+REFERENCE/i.test(line) && !/PREREQUISITE/i.test(line)) {
-      inCrossRef    = true;
-      inCondition   = false;
-      curCondMember = null;
+    // ── Detecta seção CROSS REFERENCE ─────────────────
+    if (/CROSS\s+REFERENCE/i.test(line)) {
+      inCrossRef = true;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2537,44 +2498,13 @@ function _fluxoParse(src, filename) {
     if (line.indexOf('BY GROUP') >= 0) {
       var gm = line.match(/BY\s+GROUP\s+([A-Z0-9_\-]+)\s+GROUP/i);
       if (gm) {
-        curGroup      = gm[1].toUpperCase();
-        inCrossRef    = false;
-        inCondition   = false;
-        curCondMember = null;
+        curGroup   = gm[1].toUpperCase();
+        inCrossRef = false;
         colMember = 6; colDepend = 15; colDesc = 24;  // reset para posições fixas
         if (!result[curGroup]) result[curGroup] = { jobs: {}, edges: [] };
         curJob = null; waitCont = false;
       }
       continue;
-    }
-
-    // ── CONDITION: processa linhas de dados ──────────
-    if (inCondition) {
-      // Separador de traços (ASCII ou Unicode) → ignora
-      if (/^[-\u2500\u2501\u2014\u2013=\s]+$/.test(line)) continue;
-      // LVL numérico → voltou ao JOB FLOW, sai do modo CONDITION sem continue
-      var lvlTest = raw.slice(0, colMember).trim();
-      if (lvlTest !== '' && !isNaN(parseInt(lvlTest, 10))) {
-        inCondition   = false;
-        curCondMember = null;
-        // cai para o parser de JOB abaixo
-      } else {
-        // Extrai produtor: primeiro token alfanumérico no início da linha
-        var condM = line.match(/^([A-Z][A-Z0-9]{1,29})/i);
-        if (condM && curGroup) {
-          var cprod = condM[1].toUpperCase();
-          var ccons = curCondMember;
-          if (!ccons) {
-            var cp2 = line.match(/[A-Z][A-Z0-9]{1,29}-([A-Z][A-Z0-9]{1,29})/i);
-            ccons = cp2 ? cp2[1].toUpperCase() : null;
-          }
-          if (ccons && cprod !== ccons) {
-            if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
-            simpleCondEdges[curGroup].push({ from: cprod, to: ccons });
-          }
-        }
-        continue;
-      }
     }
 
     // ── CROSS REFERENCE: processa linhas de condição ──
@@ -2601,8 +2531,6 @@ function _fluxoParse(src, filename) {
 
     // ── Linha de cabeçalho "LVL MEMBER DEPEND ON..." → ignorar (colunas são fixas) ──
     if (/^\s*LVL\s+MEMBER/i.test(raw)) {
-      inCondition   = false;   // garante saída da seção CONDITION ao entrar no JOB FLOW
-      curCondMember = null;
       curJob = null; waitCont = false;
       continue;
     }
@@ -2729,30 +2657,6 @@ function _fluxoParse(src, filename) {
     }
   });
 
-  // ── Aplica arestas da seção PREREQUISITE CONDITIONS ─────────────────
-  // Cria aresta FROM→TO para cada par coletado.
-  // Se um dos jobs não existir no result local (pode estar só em _fluxoData de outro arquivo),
-  // cria o nó no result para que a aresta seja registrada.
-  // Duplicatas de nós são evitadas pelo check em result[g].jobs e em renderFluxoFromParsed (addedNodes).
-  Object.keys(simpleCondEdges).forEach(function(g) {
-    if (!result[g]) return;
-    simpleCondEdges[g].forEach(function(ce) {
-      if (!result[g].jobs[ce.from]) {
-        result[g].jobs[ce.from] = {
-          id: ce.from, label: ce.from, group: g, level: 0,
-          calendar: '-', type: 'NORMAL', generatedBy: null
-        };
-      }
-      if (!result[g].jobs[ce.to]) {
-        result[g].jobs[ce.to] = {
-          id: ce.to, label: ce.to, group: g, level: 0,
-          calendar: '-', type: 'NORMAL', generatedBy: null
-        };
-      }
-      _fluxoAddEdge(result[g], ce.from, ce.to, 'OK', false, 'dependency');
-    });
-  });
-
   if (Object.keys(result).length === 0) {
     toast('Arquivo não reconhecido como Control-M Job Flow Report.', 4000);
     return;
@@ -2764,13 +2668,7 @@ function _fluxoParse(src, filename) {
     if (_fluxoData[g]) {
       // Merge jobs (job existente não é sobrescrito)
       Object.keys(result[g].jobs).forEach(function(jid) {
-        var existing = _fluxoData[g].jobs[jid];
-        var incoming = result[g].jobs[jid];
-        // Job real (label != id ou level > 0) substitui fantasma; caso contrário não sobrescreve
-        if (!existing || (existing.label === existing.id && existing.level === 0 &&
-            (incoming.label !== incoming.id || incoming.level > 0))) {
-          _fluxoData[g].jobs[jid] = incoming;
-        }
+        if (!_fluxoData[g].jobs[jid]) _fluxoData[g].jobs[jid] = result[g].jobs[jid];
       });
       // Merge edges sem duplicar
       result[g].edges.forEach(function(e) {
