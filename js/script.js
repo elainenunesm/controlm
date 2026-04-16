@@ -2691,28 +2691,9 @@ function _fluxoParse(src, filename) {
   });
 
   // ── Resolve PREREQUISITE CONDITIONS como fallback ─────────────
-  // Aplica aresta produtor→member APENAS se o member ainda não tem nenhuma aresta de dependência
-  prereqEdges.forEach(function(pe) {
-    var memberName   = pe.member;
-    var producerName = pe.producer;
-    // Busca o grupo que contém o member
-    var tg = null, tgName = null;
-    Object.keys(result).forEach(function(g) {
-      if (!tg && result[g].jobs[memberName]) { tg = result[g]; tgName = g; }
-    });
-    if (!tg) return;  // member não existe no JOB FLOW deste arquivo
-    // Só aplica se o member não tem nenhuma aresta chegando nele
-    var jaTemDep = tg.edges.some(function(e) { return e.to === memberName; });
-    if (jaTemDep) return;
-    // Cria nó produtor se não existe
-    if (!tg.jobs[producerName]) {
-      tg.jobs[producerName] = { id: producerName, label: producerName,
-        group: tgName, level: 0, calendar: '-', type: 'NORMAL', generatedBy: null };
-    }
-    _fluxoAddEdge(tg, producerName, memberName, 'OK', false, 'dependency');
-  });
+  // REMOVIDO daqui — aplicado após merge no _fluxoData (ver abaixo)
 
-  if (Object.keys(result).length === 0) {
+  if (Object.keys(result).length === 0 && prereqEdges.length === 0) {
     toast('Arquivo não reconhecido como Control-M Job Flow Report.', 4000);
     return;
   }
@@ -2736,8 +2717,32 @@ function _fluxoParse(src, filename) {
     if (_fluxoSelectedGroups.indexOf(g) < 0) _fluxoSelectedGroups.push(g);
   });
 
+  // ── Aplica PREREQUISITE CONDITIONS contra _fluxoData completo ─
+  // (inclui jobs de arquivos anteriores já no _fluxoData)
+  // Aresta criada APENAS se o member ainda não tem nenhuma dependência
+  prereqEdges.forEach(function(pe) {
+    var memberName   = pe.member;
+    var producerName = pe.producer;
+    // Busca o grupo que contém o member em TODOS os grupos já carregados
+    var tg = null, tgName = null;
+    Object.keys(_fluxoData).forEach(function(g) {
+      if (!tg && _fluxoData[g].jobs[memberName]) { tg = _fluxoData[g]; tgName = g; }
+    });
+    if (!tg) return;
+    // Só aplica se o member não tem nenhuma aresta chegando nele
+    var jaTemDep = tg.edges.some(function(e) { return e.to === memberName; });
+    if (jaTemDep) return;
+    // Cria nó produtor se não existe
+    if (!tg.jobs[producerName]) {
+      tg.jobs[producerName] = { id: producerName, label: producerName,
+        group: tgName, level: 0, calendar: '-', type: 'NORMAL', generatedBy: null };
+    }
+    _fluxoAddEdge(tg, producerName, memberName, 'OK', false, 'dependency');
+  });
+
   // Registra a fonte (arquivo importado)
-  _fluxoSources.push({ filename: filename, groups: Object.keys(result) });
+  var srcGroups = Object.keys(result).length > 0 ? Object.keys(result) : Object.keys(_fluxoData);
+  _fluxoSources.push({ filename: filename, groups: srcGroups });
 
   // Atualiza UI
   _fluxoRenderGroupFilter();
@@ -2751,7 +2756,8 @@ function _fluxoParse(src, filename) {
 
   mostrarTab('fluxo', document.querySelectorAll('.tab')[1]);
   var novosJobs = Object.keys(result).reduce(function(acc, g) { return acc + Object.keys(result[g].jobs).length; }, 0);
-  toast('Importado: ' + novosJobs + ' jobs de ' + Object.keys(result).length + ' grupo(s) — Total: ' + totalJobs + ' jobs.', 4000);
+  var msgExtra = prereqEdges.length > 0 ? ' + ' + prereqEdges.length + ' condition(s)' : '';
+  toast('Importado: ' + novosJobs + ' jobs de ' + Object.keys(result).length + ' grupo(s)' + msgExtra + ' — Total: ' + totalJobs + ' jobs.', 4000);
 }
 
 // Adiciona aresta sem duplicar
