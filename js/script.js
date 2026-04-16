@@ -2492,26 +2492,35 @@ function _fluxoParse(src, filename) {
     if (!line) continue;
 
     // ── Detecta linha "CONDITION MEMBERNAME" ──────────
-    // Estrutura real do relatório:
-    //   " CONDITION           SSSSCXX2"  ← MEMBER (consumidor) na MESMA linha
-    //   " ─────────────────────────────"  ← separador
-    //   " SSSSCXX1-SSSSCXX1"             ← nome da condição (produtor é o 1º token)
-    // ATENÇÃO: só entra em inCondition se NÃO estiver no JOB FLOW em andamento
-    // (linha começa com CONDITION, sem dígito LVL no início)
-    if (!inCrossRef && !inCondition && /^\s*CONDITION\b/i.test(line) &&
-        !/\bODATE\b/i.test(line) && !/^\s*\d/.test(line)) {
-      // Tenta extrair MEMBER (consumidor) da mesma linha: primeiro token após "CONDITION"
-      var cmHdr = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
-      curCondMember = cmHdr ? cmHdr[1].toUpperCase() : null;
-      inCondition = true;
-      inCrossRef  = false;
-      curJob = null; waitCont = false;
+    // Confirma com look-ahead: só entra em modo CONDITION se a próxima linha
+    // não-vazia for uma linha de separadores (traços ASCII ou Unicode).
+    // Isso evita falsos positivos com descricões de jobs que contenham a palavra CONDITION.
+    if (!inCrossRef && !inCondition && curGroup &&
+        /^\s*CONDITION\s+[A-Z]/i.test(line) && !/\bODATE\b/i.test(line)) {
+      var nextNE = '';
+      for (var ni = i + 1; ni < lines.length; ni++) {
+        nextNE = lines[ni].trim();
+        if (nextNE) break;
+      }
+      if (/^[-\u2500\u2501\u2014\u2013=]+$/.test(nextNE)) {
+        var cmHdr = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
+        curCondMember = cmHdr ? cmHdr[1].toUpperCase() : null;
+        inCondition   = true;
+        curJob = null; waitCont = false;
+      }
       continue;
     }
-    // Dentro de inCondition: nova subseção CONDITION com novo MEMBER
-    if (inCondition && /^\s*CONDITION\b/i.test(line) && !/\bODATE\b/i.test(line)) {
-      var cmHdr3 = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
-      curCondMember = cmHdr3 ? cmHdr3[1].toUpperCase() : curCondMember;
+    // Dentro de inCondition: nova sub-seção CONDITION com novo MEMBER (também com look-ahead)
+    if (inCondition && /^\s*CONDITION\s+[A-Z]/i.test(line) && !/\bODATE\b/i.test(line)) {
+      var nextNE2 = '';
+      for (var ni2 = i + 1; ni2 < lines.length; ni2++) {
+        nextNE2 = lines[ni2].trim();
+        if (nextNE2) break;
+      }
+      if (/^[-\u2500\u2501\u2014\u2013=]+$/.test(nextNE2)) {
+        var cmHdr2 = line.match(/^\s*CONDITION\s+([A-Z][A-Z0-9]{1,29})/i);
+        curCondMember = cmHdr2 ? cmHdr2[1].toUpperCase() : curCondMember;
+      }
       continue;
     }
 
@@ -2540,31 +2549,26 @@ function _fluxoParse(src, filename) {
     }
 
     // ── CONDITION: processa linhas de dados ──────────
-    // A linha de dados tem o nome da condição: "PRODUTOR-...-STATUS" ou "PRODUTOR-CONSUMIDOR"
-    // O produtor é o 1º token antes do primeiro '-'
-    // O consumidor é curCondMember (extraído do cabeçalho CONDITION) ou o 2º token
     if (inCondition) {
-      if (/^[-\s]+$/.test(line)) continue;  // separador ───────
-      // Se a linha tem LVL numérico na posição correta, é uma linha de JOB → sai do modo CONDITION
+      // Separador de traços (ASCII ou Unicode) → ignora
+      if (/^[-\u2500\u2501\u2014\u2013=\s]+$/.test(line)) continue;
+      // LVL numérico → voltou ao JOB FLOW, sai do modo CONDITION sem continue
       var lvlTest = raw.slice(0, colMember).trim();
       if (lvlTest !== '' && !isNaN(parseInt(lvlTest, 10))) {
         inCondition   = false;
         curCondMember = null;
-        // não dá continue: deixa cair para o parser de JOB abaixo
+        // cai para o parser de JOB abaixo
       } else {
-        // Extrai produtor: primeiro token alfanumérico da linha
-        var condDataRx = /([A-Z][A-Z0-9]{1,29})/i;
-        var condDataM  = line.match(condDataRx);
-        if (condDataM && curGroup) {
-          var cprod = condDataM[1].toUpperCase();
+        // Extrai produtor: primeiro token alfanumérico no início da linha
+        var condM = line.match(/^([A-Z][A-Z0-9]{1,29})/i);
+        if (condM && curGroup) {
+          var cprod = condM[1].toUpperCase();
           var ccons = curCondMember;
           if (!ccons) {
-            var condParts = line.match(/[A-Z][A-Z0-9]{1,29}-([A-Z][A-Z0-9]{1,29})/i);
-            ccons = condParts ? condParts[1].toUpperCase() : null;
+            var cp2 = line.match(/[A-Z][A-Z0-9]{1,29}-([A-Z][A-Z0-9]{1,29})/i);
+            ccons = cp2 ? cp2[1].toUpperCase() : null;
           }
-          if (ccons && cprod !== ccons &&
-              /^[A-Z][A-Z0-9]{1,29}$/.test(cprod) &&
-              /^[A-Z][A-Z0-9]{1,29}$/.test(ccons)) {
+          if (ccons && cprod !== ccons) {
             if (!simpleCondEdges[curGroup]) simpleCondEdges[curGroup] = [];
             simpleCondEdges[curGroup].push({ from: cprod, to: ccons });
           }
